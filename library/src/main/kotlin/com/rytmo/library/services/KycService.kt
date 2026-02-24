@@ -16,15 +16,15 @@ class KycService(private val bridgeService: BridgeService, private val customerI
         private val logger = LoggerFactory.getLogger(KycService::class.java)
     }
 
-    fun createKycLinkByExternalId(externalId: String, fullName: String, email: String): KycLinkResponse {
+    fun createKycLinkByExternalId(externalId: String, fullName: String, email: String, redirectUri: String?): KycLinkResponse {
         val internalCustomerId =
             customerIdentityService.getInternalCustomerIdByExternalId(externalId)
                 ?: throw KycLinkCreationException("Customer not found for external ID: $externalId")
 
-        return createKycLink(internalCustomerId, fullName, email)
+        return createKycLink(internalCustomerId, fullName, email, redirectUri)
     }
 
-    fun createKycLink(internalCustomerId: String, fullName: String, email: String): KycLinkResponse {
+    fun createKycLink(internalCustomerId: String, fullName: String, email: String, redirectUri: String?): KycLinkResponse {
         val customer =
             customerService.get(internalCustomerId)
                 ?: throw KycLinkCreationException("Customer not found: $internalCustomerId")
@@ -36,7 +36,7 @@ class KycService(private val bridgeService: BridgeService, private val customerI
         } catch (ignore: ExternalAccountException) {}
 
         try {
-            val bridgeResponse = bridgeService.createKycLink(fullName, email)
+            val bridgeResponse = bridgeService.createKycLink(fullName, email, redirectUri)
 
             if (existingBridgeIdentity == null) {
                 customerIdentityService.linkIdentity(

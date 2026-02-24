@@ -90,7 +90,7 @@ class BridgeService(
         }
     }
 
-    fun createKycLink(fullName: String, email: String, type: String = "individual"): IndividualKycLinkResponse {
+    fun createKycLink(fullName: String, email: String, redirectUri: String?, type: String = "individual"): IndividualKycLinkResponse {
         val idempotencyKey = java.util.UUID.randomUUID().toString()
         val request =
             CreateKycLinks()
@@ -98,6 +98,7 @@ class BridgeService(
                 .email(email)
                 .type(CreateKycLinks.TypeEnum.fromValue(type))
                 .endorsements(listOf(EndorsementType.SPEI, EndorsementType.BASE))
+                .redirectUri(redirectUri)
 
         try {
             return kycLinksApi.kycLinksPost(idempotencyKey, request)

@@ -81,6 +81,7 @@ class CustomerResource {
                     externalId = authorizedUser.userId,
                     fullName = request.fullName,
                     email = request.email,
+                    redirectUri = request.redirectUri,
                 )
             Response.status(Response.Status.CREATED).entity(kycLinkResponse).build()
         } catch (e: KycLinkCreationException) {

@@ -7,4 +7,6 @@ data class CreateKycLinkRequest(
     val fullName: String,
     @JsonProperty("email")
     val email: String,
+    @JsonProperty("redirectUri")
+    val redirectUri: String? = null,
 )
