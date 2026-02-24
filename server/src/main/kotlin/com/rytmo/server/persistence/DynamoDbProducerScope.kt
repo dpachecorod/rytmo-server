@@ -5,9 +5,15 @@ import com.rytmo.library.persistence.customeridentities.CustomerIdentityDao
 import com.rytmo.library.persistence.customeridentities.CustomerIdentityService
 import com.rytmo.library.persistence.customers.CustomerDao
 import com.rytmo.library.persistence.customers.CustomerService
+import com.rytmo.library.services.BridgeCustomerService
 import com.rytmo.library.services.BridgeService
+import com.rytmo.library.services.ExternalAccountService
 import com.rytmo.library.services.KycService
+import com.rytmo.library.services.LiquidationAddressService
 import com.rytmo.library.services.OnboardingService
+import com.rytmo.library.services.PrivyService
+import com.rytmo.library.services.VirtualAccountService
+import io.privy.api.PrivyApiClient
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Produces
 import jakarta.inject.Singleton
@@ -16,6 +22,7 @@ import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
+import java.util.Optional
 
 @ApplicationScoped
 class DynamoDbProducerScope {
@@ -81,4 +88,34 @@ class DynamoDbProducerScope {
     @Singleton
     fun kycService(bridgeService: BridgeService, customerIdentityService: CustomerIdentityService, customerService: CustomerService): KycService =
         KycService(bridgeService, customerIdentityService, customerService)
+
+    @Produces
+    @Singleton
+    fun bridgeCustomerService(bridgeService: BridgeService, customerIdentityService: CustomerIdentityService): BridgeCustomerService = BridgeCustomerService(bridgeService, customerIdentityService)
+
+    @Produces
+    @Singleton
+    fun privyApiClient(@ConfigProperty(name = "privy.app-id") privyAppId: String, @ConfigProperty(name = "privy.app-secret") privyAppSecret: String): PrivyApiClient =
+        PrivyApiClient.builder().privyAppId(privyAppId).privyAppSecret(privyAppSecret).build()
+
+    @Produces
+    @Singleton
+    fun privyService(privyApiClient: PrivyApiClient): PrivyService = PrivyService(privyApiClient)
+
+    @Produces
+    @Singleton
+    fun virtualAccountService(bridgeService: BridgeService, privyService: PrivyService, customerIdentityService: CustomerIdentityService): VirtualAccountService =
+        VirtualAccountService(bridgeService, privyService, customerIdentityService)
+
+    @Produces
+    @Singleton
+    fun externalAccountService(bridgeService: BridgeService, customerIdentityService: CustomerIdentityService): ExternalAccountService = ExternalAccountService(bridgeService, customerIdentityService)
+
+    @Produces
+    @Singleton
+    fun liquidationAddressService(
+        bridgeService: BridgeService,
+        customerIdentityService: CustomerIdentityService,
+        @ConfigProperty(name = "bridge.liquidation.return-address") returnAddress: Optional<String>,
+    ): LiquidationAddressService = LiquidationAddressService(bridgeService, returnAddress.orElse(""), customerIdentityService)
 }

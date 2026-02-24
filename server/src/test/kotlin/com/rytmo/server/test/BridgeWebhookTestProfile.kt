@@ -34,6 +34,7 @@ class BridgeWebhookTestProfile : QuarkusTestProfile {
             "bridge.webhook.public-key-pem" to getPublicKeyPem(),
             "bridge.api-key" to "test-api-key",
             "bridge.base-url" to "https://test.bridge.xyz/v0",
+            "bridge.liquidation.return-address" to "0xtest-return-address-for-failed-transactions",
             "privy.public-key-pem" to publicEcJwkJson,
             "privy.private-key-pem" to privateEcJwkJson,
             "dynamodb.table.customers" to "test-customers",

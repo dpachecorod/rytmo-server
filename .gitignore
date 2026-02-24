@@ -24,6 +24,9 @@ nb-configuration.xml
 # OSX
 .DS_Store
 
+# Kotlin daemon sessions
+.kotlin/
+
 # Vim
 *.swp
 *.swo

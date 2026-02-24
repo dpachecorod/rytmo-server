@@ -25,6 +25,7 @@ dependencies {
     implementation("io.quarkus:quarkus-rest-jackson")
     implementation("io.quarkus:quarkus-arc")
     implementation("io.quarkus:quarkus-smallrye-openapi")
+    implementation("io.quarkus:quarkus-smallrye-health")
     implementation("io.quarkus:quarkus-hibernate-validator")
 
     testImplementation("io.quarkus:quarkus-junit5")
@@ -35,6 +36,7 @@ dependencies {
 
     implementation(project(":models"))
     implementation(project(":library"))
+    implementation("io.privy.api:privy-java:0.52.4")
 
     implementation("com.nimbusds:nimbus-jose-jwt:10.7")
     implementation("org.bouncycastle:bcprov-jdk18on:1.83")

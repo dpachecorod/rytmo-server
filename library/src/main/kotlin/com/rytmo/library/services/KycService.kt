@@ -1,9 +1,13 @@
 package com.rytmo.library.services
 
+import com.rytmo.library.exceptions.ExternalAccountException
 import com.rytmo.library.exceptions.KycLinkCreationException
+import com.rytmo.library.persistence.customeridentities.CustomerIdentityDynamoDbBean
 import com.rytmo.library.persistence.customeridentities.CustomerIdentityService
 import com.rytmo.library.persistence.customers.CustomerService
 import com.rytmo.models.kyc.KycLinkResponse
+import com.rytmo.models.kyc.RejectionReason
+import com.rytmo.models.onboarding.BridgeOnboardingStatus
 import org.slf4j.LoggerFactory
 
 class KycService(private val bridgeService: BridgeService, private val customerIdentityService: CustomerIdentityService, private val customerService: CustomerService) {
@@ -25,8 +29,11 @@ class KycService(private val bridgeService: BridgeService, private val customerI
             customerService.get(internalCustomerId)
                 ?: throw KycLinkCreationException("Customer not found: $internalCustomerId")
 
-        val existingBridgeIdentity =
-            customerIdentityService.getIdentity(internalCustomerId, BRIDGE_PROVIDER)
+        var existingBridgeIdentity: CustomerIdentityDynamoDbBean? = null
+        try {
+            existingBridgeIdentity =
+                customerIdentityService.getIdentity(internalCustomerId, BRIDGE_PROVIDER)
+        } catch (ignore: ExternalAccountException) {}
 
         try {
             val bridgeResponse = bridgeService.createKycLink(fullName, email)
@@ -35,7 +42,7 @@ class KycService(private val bridgeService: BridgeService, private val customerI
                 customerIdentityService.linkIdentity(
                     internalCustomerId = internalCustomerId,
                     provider = BRIDGE_PROVIDER,
-                    externalId = bridgeResponse.id,
+                    externalId = bridgeResponse.customerId,
                 )
             } else if (existingBridgeIdentity.externalId != bridgeResponse.id) {
                 logger.warn(
@@ -47,16 +54,43 @@ class KycService(private val bridgeService: BridgeService, private val customerI
             }
 
             return KycLinkResponse(
-                id = bridgeResponse.id,
-                kycLink = bridgeResponse.kycLink,
-                kycStatus = bridgeResponse.kycStatus,
-                tosLink = bridgeResponse.tosLink,
-                tosStatus = bridgeResponse.tosStatus,
-                createdAt = bridgeResponse.createdAt,
+                id = bridgeResponse.id ?: "",
+                kycLink = bridgeResponse.kycLink ?: "",
+                kycStatus = bridgeResponse.kycStatus?.value ?: "",
+                tosLink = bridgeResponse.tosLink ?: "",
+                tosStatus = bridgeResponse.tosStatus?.value ?: "",
+                createdAt = bridgeResponse.createdAt?.toString(),
             )
         } catch (e: BridgeApiException) {
             throw KycLinkCreationException("Failed to create KYC link via Bridge API: ${e.message}", e)
         }
+    }
+
+    fun getOnboardingStatusByExternalId(externalId: String): BridgeOnboardingStatus? {
+        val internalCustomerId =
+            customerIdentityService.getInternalCustomerIdByExternalId(externalId) ?: return null
+
+        val bridgeIdentity =
+            customerIdentityService.getIdentity(internalCustomerId, BRIDGE_PROVIDER) ?: return null
+
+        logger.info("Getting KYC links for customer {}", bridgeIdentity.externalId)
+        val kycLink = bridgeService.getKycLinks(bridgeIdentity.externalId)
+        logger.info("KYC links for customer {}: {}", bridgeIdentity.externalId, kycLink)
+        return BridgeOnboardingStatus(
+            kycStatus = kycLink.kycStatus?.value ?: "unknown",
+            tosStatus = kycLink.tosStatus?.value ?: "unknown",
+            kycLink = kycLink.kycLink ?: "",
+            tosLink = kycLink.tosLink ?: "",
+            rejectionReasons =
+            kycLink.rejectionReasons?.map { reason ->
+                RejectionReason(
+                    developerReason = reason.developerReason,
+                    reason = reason.reason,
+                    createdAt = reason.createdAt,
+                )
+            } ?: emptyList(),
+            createdAt = kycLink.createdAt?.toString(),
+        )
     }
 
     fun listKycLinksByExternalId(externalId: String): List<KycLinkResponse> {
@@ -75,17 +109,18 @@ class KycService(private val bridgeService: BridgeService, private val customerI
                 )
 
         try {
-            val bridgeResponse = bridgeService.getKycLinks(bridgeIdentity.externalId)
-            return bridgeResponse.data?.map { item ->
+            logger.info("Getting KYC links for customer {}", internalCustomerId)
+            val kycLink = bridgeService.getKycLinks(bridgeIdentity.externalId)
+            return listOf(
                 KycLinkResponse(
-                    id = item.id,
-                    kycLink = item.kycLink,
-                    kycStatus = item.kycStatus,
-                    tosLink = item.tosLink,
-                    tosStatus = item.tosStatus,
-                    createdAt = item.createdAt,
-                )
-            } ?: emptyList()
+                    id = kycLink.id ?: "",
+                    kycLink = kycLink.kycLink ?: "",
+                    kycStatus = kycLink.kycStatus?.value ?: "",
+                    tosLink = kycLink.tosLink ?: "",
+                    tosStatus = kycLink.tosStatus?.value ?: "",
+                    createdAt = kycLink.createdAt?.toString(),
+                ),
+            )
         } catch (e: BridgeApiException) {
             throw KycLinkCreationException("Failed to get KYC links via Bridge API: ${e.message}", e)
         }

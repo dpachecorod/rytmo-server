@@ -1,10 +1,14 @@
 package com.rytmo.server
 
+import com.rytmo.library.exceptions.BridgeCustomerException
 import com.rytmo.library.exceptions.EmailAlreadyExistsException
 import com.rytmo.library.exceptions.KycLinkCreationException
+import com.rytmo.library.services.BridgeApiException
+import com.rytmo.library.services.BridgeCustomerService
 import com.rytmo.library.services.KycService
 import com.rytmo.library.services.OnboardingService
 import com.rytmo.models.auth.AuthorizedUser
+import com.rytmo.models.bridge.CreateBridgeCustomerRequest
 import com.rytmo.models.customer.OnboardRequest
 import com.rytmo.models.kyc.CreateKycLinkRequest
 import com.rytmo.server.auth.PrivyProtected
@@ -36,6 +40,8 @@ class CustomerResource {
     @Inject lateinit var onboardingService: OnboardingService
 
     @Inject lateinit var kycService: KycService
+
+    @Inject lateinit var bridgeCustomerService: BridgeCustomerService
 
     @POST
     @Path("/onboard")
@@ -88,6 +94,35 @@ class CustomerResource {
         }
     }
 
+    @POST
+    @Path("/bridge")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @PrivyProtected
+    fun createBridgeCustomer(request: CreateBridgeCustomerRequest, @Context requestContext: ContainerRequestContext): Response {
+        val authorizedUser =
+            requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
+
+        return try {
+            val bridgeCustomer =
+                bridgeCustomerService.createByExternalId(
+                    externalId = authorizedUser.userId,
+                    firstName = request.firstName,
+                    lastName = request.lastName,
+                    email = request.email,
+                )
+            Response.status(Response.Status.CREATED).entity(bridgeCustomer).build()
+        } catch (e: BridgeCustomerException) {
+            if (e.message?.contains("not found") == true) {
+                Response.status(Response.Status.NOT_FOUND).entity(mapOf("error" to e.message)).build()
+            } else {
+                Response.status(Response.Status.BAD_GATEWAY)
+                    .entity(mapOf("error" to "Failed to create Bridge customer"))
+                    .build()
+            }
+        }
+    }
+
     @GET
     @Path("/me")
     @Produces(MediaType.APPLICATION_JSON)
@@ -124,6 +159,29 @@ class CustomerResource {
                     .entity(mapOf("error" to "Failed to get KYC links"))
                     .build()
             }
+        }
+    }
+
+    @GET
+    @Path("/me/onboarding/bridge")
+    @Produces(MediaType.APPLICATION_JSON)
+    @PrivyProtected
+    fun getBridgeOnboardingStatus(@Context requestContext: ContainerRequestContext): Response {
+        val authorizedUser =
+            requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
+
+        return try {
+            val status =
+                kycService.getOnboardingStatusByExternalId(authorizedUser.userId)
+                    ?: return Response.status(Response.Status.NOT_FOUND)
+                        .entity(mapOf("error" to "Customer not found"))
+                        .build()
+
+            Response.ok(status).build()
+        } catch (e: BridgeApiException) {
+            Response.status(Response.Status.BAD_GATEWAY)
+                .entity(mapOf("error" to "Failed to get onboarding status"))
+                .build()
         }
     }
 }

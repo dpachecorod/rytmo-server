@@ -33,7 +33,6 @@ class PrivyAuthFilterScope(@ConfigProperty(name = "privy.app-id") private val ap
     private val authorizer: PrivyAuthorizer = buildAuthorizer()
 
     override fun filter(requestContext: ContainerRequestContext) {
-        log.info("Filtering request: ${requestContext.uriInfo.path}")
         val authHeader = requestContext.getHeaderString(HttpHeaders.AUTHORIZATION)
 
         var token: String? = null
@@ -42,7 +41,6 @@ class PrivyAuthFilterScope(@ConfigProperty(name = "privy.app-id") private val ap
         }
 
         try {
-            log.info("Authenticating user with token: $token")
             val authorizedUser = authorizer.authorize(token ?: "")
             requestContext.setProperty(AUTHORIZED_USER_PROPERTY, authorizedUser)
         } catch (e: AuthorizationException) {

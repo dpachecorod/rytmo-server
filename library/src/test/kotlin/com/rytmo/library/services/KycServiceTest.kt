@@ -1,6 +1,8 @@
 package com.rytmo.library.services
 
-import com.rytmo.library.bridge.model.KycLinksGet200ResponseDataInner
+import com.rytmo.library.bridge.model.IndividualKycLinkResponse
+import com.rytmo.library.bridge.model.KycStatus
+import com.rytmo.library.bridge.model.TosStatus
 import com.rytmo.library.exceptions.KycLinkCreationException
 import com.rytmo.library.persistence.customeridentities.CustomerIdentityDynamoDbBean
 import com.rytmo.library.persistence.customeridentities.CustomerIdentityService
@@ -17,6 +19,7 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import java.time.OffsetDateTime
 
 class KycServiceTest {
     private lateinit var bridgeService: BridgeService
@@ -47,13 +50,14 @@ class KycServiceTest {
         whenever(customerIdentityService.getIdentity(internalCustomerId, "bridge")).thenReturn(null)
 
         val bridgeResponse =
-            KycLinksGet200ResponseDataInner()
+            IndividualKycLinkResponse(null)
                 .id("kyc_link_abc")
+                .customerId("bridge-cust-456")
                 .kycLink("https://kyc.bridge.xyz/abc")
-                .kycStatus("not_started")
+                .kycStatus(KycStatus.NOT_STARTED)
                 .tosLink("https://tos.bridge.xyz/abc")
-                .tosStatus("pending")
-                .createdAt("2024-01-15T10:00:00Z")
+                .tosStatus(TosStatus.PENDING)
+                .createdAt(OffsetDateTime.parse("2024-01-15T10:00:01Z"))
 
         whenever(bridgeService.createKycLink(fullName, email)).thenReturn(bridgeResponse)
         whenever(customerIdentityService.linkIdentity(any(), any(), any()))
@@ -63,7 +67,7 @@ class KycServiceTest {
 
         assertEquals("kyc_link_abc", result.id)
         verify(customerIdentityService).getInternalCustomerIdByExternalId(externalId)
-        verify(customerIdentityService).linkIdentity(internalCustomerId, "bridge", "kyc_link_abc")
+        verify(customerIdentityService).linkIdentity(internalCustomerId, "bridge", "bridge-cust-456")
     }
 
     @Test
@@ -92,13 +96,14 @@ class KycServiceTest {
         whenever(customerIdentityService.getIdentity(internalCustomerId, "bridge")).thenReturn(null)
 
         val bridgeResponse =
-            KycLinksGet200ResponseDataInner()
+            IndividualKycLinkResponse(null)
                 .id("kyc_link_abc")
+                .customerId("bridge-cust-456")
                 .kycLink("https://kyc.bridge.xyz/abc")
-                .kycStatus("not_started")
+                .kycStatus(KycStatus.NOT_STARTED)
                 .tosLink("https://tos.bridge.xyz/abc")
-                .tosStatus("pending")
-                .createdAt("2024-01-15T10:00:00Z")
+                .tosStatus(TosStatus.PENDING)
+                .createdAt(OffsetDateTime.parse("2024-01-15T10:00:01Z"))
 
         whenever(bridgeService.createKycLink(fullName, email)).thenReturn(bridgeResponse)
         whenever(customerIdentityService.linkIdentity(any(), any(), any()))
@@ -111,9 +116,9 @@ class KycServiceTest {
         assertEquals("not_started", result.kycStatus)
         assertEquals("https://tos.bridge.xyz/abc", result.tosLink)
         assertEquals("pending", result.tosStatus)
-        assertEquals("2024-01-15T10:00:00Z", result.createdAt)
+        assertEquals("2024-01-15T10:00:01Z", result.createdAt)
 
-        verify(customerIdentityService).linkIdentity(internalCustomerId, "bridge", "kyc_link_abc")
+        verify(customerIdentityService).linkIdentity(internalCustomerId, "bridge", "bridge-cust-456")
     }
 
     @Test
@@ -151,13 +156,13 @@ class KycServiceTest {
             .thenReturn(existingIdentity)
 
         val bridgeResponse =
-            KycLinksGet200ResponseDataInner()
+            IndividualKycLinkResponse(null)
                 .id("kyc_link_new")
                 .kycLink("https://kyc.bridge.xyz/new")
-                .kycStatus("not_started")
+                .kycStatus(KycStatus.NOT_STARTED)
                 .tosLink("https://tos.bridge.xyz/new")
-                .tosStatus("pending")
-                .createdAt("2024-01-15T10:00:00Z")
+                .tosStatus(TosStatus.PENDING)
+                .createdAt(OffsetDateTime.parse("2024-01-15T10:00:01Z"))
 
         whenever(bridgeService.createKycLink(fullName, email)).thenReturn(bridgeResponse)
 
