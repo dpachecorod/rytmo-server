@@ -113,6 +113,7 @@ class BridgeServiceTest {
                 fullName = "John Doe",
                 email = "johndoe@example.com",
                 type = "individual",
+                redirectUri = "https://example.com/redirect",
             )
 
         assertEquals(expectedResponse.id, result.id)
@@ -136,6 +137,7 @@ class BridgeServiceTest {
         bridgeService.createKycLink(
             fullName = "John Doe",
             email = "johndoe@example.com",
+            redirectUri = "https://example.com/redirect",
         )
 
         val idempotencyKey = idempotencyKeyCaptor.firstValue
@@ -152,6 +154,7 @@ class BridgeServiceTest {
         bridgeService.createKycLink(
             fullName = "John Doe",
             email = "johndoe@example.com",
+            redirectUri = "https://example.com/redirect",
         )
 
         assertEquals("individual", requestCaptor.firstValue.type?.value)
@@ -166,6 +169,7 @@ class BridgeServiceTest {
                 bridgeService.createKycLink(
                     fullName = "John Doe",
                     email = "johndoe@example.com",
+                    redirectUri = "https://example.com/redirect",
                 )
             }
 
@@ -201,6 +205,7 @@ class BridgeServiceTest {
             bridgeService.createKycLink(
                 fullName = "John Doe",
                 email = "johndoe@example.com",
+                redirectUri = "https://example.com/redirect",
             )
 
         assertEquals("existing-kyc-123", result.id)
@@ -221,6 +226,7 @@ class BridgeServiceTest {
                 bridgeService.createKycLink(
                     fullName = "John Doe",
                     email = "bad-email",
+                    redirectUri = "https://example.com/redirect",
                 )
             }
 

@@ -17,6 +17,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.whenever
 
@@ -39,6 +40,7 @@ class CustomerResourceKycTest {
     fun `createKycLink should return 201 with valid token and request`() {
         val fullName = "John Doe"
         val email = "john@example.com"
+        val redirectUri = "https://example.com/callback"
 
         val kycLinkResponse =
             KycLinkResponse(
@@ -50,7 +52,7 @@ class CustomerResourceKycTest {
                 createdAt = "2024-01-15T10:00:00Z",
             )
 
-        whenever(kycService.createKycLinkByExternalId(any(), eq(fullName), eq(email)))
+        whenever(kycService.createKycLinkByExternalId(any(), eq(fullName), eq(email), eq(redirectUri)))
             .thenReturn(kycLinkResponse)
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
@@ -59,7 +61,7 @@ class CustomerResourceKycTest {
             RestAssured.given()
                 .header("Authorization", "Bearer $accessToken")
                 .contentType(ContentType.JSON)
-                .body(CreateKycLinkRequest(fullName, email))
+                .body(CreateKycLinkRequest(fullName, email, redirectUri))
                 .`when`()
                 .post("/customers/kyc")
                 .then()
@@ -94,7 +96,7 @@ class CustomerResourceKycTest {
         val fullName = "John Doe"
         val email = "john@example.com"
 
-        whenever(kycService.createKycLinkByExternalId(any(), any(), any()))
+        whenever(kycService.createKycLinkByExternalId(any(), any(), any(), anyOrNull()))
             .thenThrow(KycLinkCreationException("Customer not found for external ID: did:privy:tester"))
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
@@ -114,7 +116,7 @@ class CustomerResourceKycTest {
         val fullName = "John Doe"
         val email = "john@example.com"
 
-        whenever(kycService.createKycLinkByExternalId(any(), any(), any()))
+        whenever(kycService.createKycLinkByExternalId(any(), any(), any(), anyOrNull()))
             .thenThrow(KycLinkCreationException("Failed to create KYC link via Bridge API"))
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)

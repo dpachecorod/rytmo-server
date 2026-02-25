@@ -44,7 +44,6 @@ class PrivyAuthFilterScope(@ConfigProperty(name = "privy.app-id") private val ap
             val authorizedUser = authorizer.authorize(token ?: "")
             requestContext.setProperty(AUTHORIZED_USER_PROPERTY, authorizedUser)
         } catch (e: AuthorizationException) {
-            log.error("Failed to authenticate user: ${e.message}", e)
             requestContext.abortWith(
                 Response.status(Response.Status.UNAUTHORIZED).entity("Unauthorized").build(),
             )

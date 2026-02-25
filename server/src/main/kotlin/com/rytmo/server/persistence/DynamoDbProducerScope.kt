@@ -13,6 +13,7 @@ import com.rytmo.library.services.LiquidationAddressService
 import com.rytmo.library.services.OnboardingService
 import com.rytmo.library.services.PrivyService
 import com.rytmo.library.services.VirtualAccountService
+import io.micrometer.core.instrument.MeterRegistry
 import io.privy.api.PrivyApiClient
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Produces
@@ -82,7 +83,8 @@ class DynamoDbProducerScope {
         @ConfigProperty(name = "bridge.api-key") apiKey: String,
         @ConfigProperty(name = "bridge.base-url", defaultValue = "https://api.bridge.xyz/v0")
         baseUrl: String,
-    ): BridgeService = BridgeService.create(apiKey, baseUrl)
+        meterRegistry: MeterRegistry,
+    ): BridgeService = BridgeService.create(apiKey, baseUrl, meterRegistry)
 
     @Produces
     @Singleton
@@ -100,7 +102,7 @@ class DynamoDbProducerScope {
 
     @Produces
     @Singleton
-    fun privyService(privyApiClient: PrivyApiClient): PrivyService = PrivyService(privyApiClient)
+    fun privyService(privyApiClient: PrivyApiClient, meterRegistry: MeterRegistry): PrivyService = PrivyService(privyApiClient, meterRegistry)
 
     @Produces
     @Singleton

@@ -188,6 +188,7 @@ dependencies {
     testImplementation("org.mockito:mockito-core:5.17.0")
     testImplementation("org.mockito:mockito-junit-jupiter:5.17.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
+    implementation("io.micrometer:micrometer-core:1.13.6")
     implementation("io.privy.api:privy-java:0.52.4")
     implementation("com.nimbusds:nimbus-jose-jwt:10.7")
     implementation("org.mapstruct:mapstruct:1.6.3")

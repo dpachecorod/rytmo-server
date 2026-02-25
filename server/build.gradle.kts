@@ -27,6 +27,9 @@ dependencies {
     implementation("io.quarkus:quarkus-smallrye-openapi")
     implementation("io.quarkus:quarkus-smallrye-health")
     implementation("io.quarkus:quarkus-hibernate-validator")
+    implementation("io.quarkus:quarkus-micrometer")
+    implementation("io.micrometer:micrometer-registry-cloudwatch2:1.13.6")
+    implementation("software.amazon.awssdk:cloudwatch")
 
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.quarkus:quarkus-junit5-mockito")

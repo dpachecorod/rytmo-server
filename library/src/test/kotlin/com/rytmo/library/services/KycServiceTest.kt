@@ -78,11 +78,11 @@ class KycServiceTest {
 
         val exception =
             assertThrows(KycLinkCreationException::class.java) {
-                kycService.createKycLinkByExternalId(externalId, "John Doe", "john@example.com")
+                kycService.createKycLinkByExternalId(externalId, "John Doe", "john@example.com", "uri")
             }
 
         assertTrue(exception.message?.contains("Customer not found for external ID") == true)
-        verify(bridgeService, never()).createKycLink(any(), any(), any())
+        verify(bridgeService, never()).createKycLink(any(), any(), any(), any())
     }
 
     @Test
@@ -129,11 +129,11 @@ class KycServiceTest {
 
         val exception =
             assertThrows(KycLinkCreationException::class.java) {
-                kycService.createKycLink(internalCustomerId, "John Doe", "john@example.com")
+                kycService.createKycLink(internalCustomerId, "John Doe", "john@example.com", "uri")
             }
 
         assertTrue(exception.message?.contains("Customer not found") == true)
-        verify(bridgeService, never()).createKycLink(any(), any(), any())
+        verify(bridgeService, never()).createKycLink(any(), any(), any(), any())
         verify(customerIdentityService, never()).linkIdentity(any(), any(), any())
     }
 

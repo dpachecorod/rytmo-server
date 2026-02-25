@@ -37,6 +37,9 @@ import com.rytmo.library.bridge.model.VirtualAccountResponse
 import com.rytmo.library.bridge.model.VirtualAccountSourceInput
 import com.rytmo.library.bridge.model.VirtualAccounts
 import com.rytmo.models.externalaccounts.ExternalAccountAddress
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Timer
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.slf4j.LoggerFactory
 import java.net.URI
 import java.net.http.HttpClient
@@ -51,8 +54,14 @@ class BridgeService(
     private val externalAccountsApi: ExternalAccountsApi,
     private val liquidationAddressesApi: LiquidationAddressesApi,
     private val customersApi: CustomersApi,
+    private val meterRegistry: MeterRegistry = SimpleMeterRegistry(),
 ) {
     val log = LoggerFactory.getLogger(this::class.java.name)
+
+    private fun <T> timed(operation: String, block: () -> T): T = Timer.builder("bridge.request")
+        .tag("operation", operation)
+        .register(meterRegistry)
+        .recordCallable(block)!!
 
     private val objectMapper =
         ObjectMapper()
@@ -73,7 +82,7 @@ class BridgeService(
         private val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(10)
         private val READ_TIMEOUT: Duration = Duration.ofSeconds(30)
 
-        fun create(apiKey: String, baseUrl: String = DEFAULT_BASE_URL): BridgeService {
+        fun create(apiKey: String, baseUrl: String = DEFAULT_BASE_URL, meterRegistry: MeterRegistry = SimpleMeterRegistry()): BridgeService {
             val apiClient = CachingApiClient()
             apiClient.updateBaseUri(baseUrl)
             apiClient.setRequestInterceptor { builder -> builder.header("Api-Key", apiKey) }
@@ -86,11 +95,12 @@ class BridgeService(
                 ExternalAccountsApi(apiClient),
                 LiquidationAddressesApi(apiClient),
                 CustomersApi(apiClient),
+                meterRegistry = meterRegistry,
             )
         }
     }
 
-    fun createKycLink(fullName: String, email: String, redirectUri: String?, type: String = "individual"): IndividualKycLinkResponse {
+    fun createKycLink(fullName: String, email: String, redirectUri: String? = null, type: String = "individual"): IndividualKycLinkResponse {
         val idempotencyKey = java.util.UUID.randomUUID().toString()
         val request =
             CreateKycLinks()
@@ -101,7 +111,7 @@ class BridgeService(
                 .redirectUri(redirectUri)
 
         try {
-            return kycLinksApi.kycLinksPost(idempotencyKey, request)
+            return timed("createKycLink") { kycLinksApi.kycLinksPost(idempotencyKey, request) }
         } catch (e: ApiException) {
             if (e.code == 400) {
                 val existing = tryExtractExistingKycLink(e.responseBody)
@@ -139,7 +149,7 @@ class BridgeService(
             )
 
         try {
-            return customersApi.customersPost(idempotencyKey, request)
+            return timed("createCustomer") { customersApi.customersPost(idempotencyKey, request) }
         } catch (e: ApiException) {
             log.error("Failed to create Bridge customer: ${e.message}", e)
             throw BridgeApiException("Failed to create Bridge customer: ${e.message}", e.code, e)
@@ -148,7 +158,8 @@ class BridgeService(
 
     fun getKycLinks(customerId: String): IndividualKycLinkResponse {
         try {
-            val response = kycLinksApi.kycLinksGet(customerId, null, null, null, null)
+            val response =
+                timed("getKycLinks") { kycLinksApi.kycLinksGet(customerId, null, null, null, null) }
             return response.data.firstOrNull()
                 ?: throw BridgeApiException("No KYC link found for customer: $customerId", 404)
         } catch (e: ApiException) {
@@ -169,11 +180,13 @@ class BridgeService(
         val request = CreateVirtualAccount().source(source).destination(destination)
 
         try {
-            return virtualAccountsApi.customersCustomerIDVirtualAccountsPost(
-                idempotencyKey,
-                customerId,
-                request,
-            )
+            return timed("createVirtualAccount") {
+                virtualAccountsApi.customersCustomerIDVirtualAccountsPost(
+                    idempotencyKey,
+                    customerId,
+                    request,
+                )
+            }
         } catch (e: ApiException) {
             log.error("Failed to create virtual account: ${e.message}", e)
             throw BridgeApiException("Failed to create virtual account: ${e.message}", e.code, e)
@@ -182,13 +195,9 @@ class BridgeService(
 
     fun listVirtualAccounts(customerId: String): VirtualAccounts {
         try {
-            return virtualAccountsApi.customersCustomerIDVirtualAccountsGet(
-                customerId,
-                null,
-                null,
-                null,
-                null,
-            )
+            return timed("listVirtualAccounts") {
+                virtualAccountsApi.customersCustomerIDVirtualAccountsGet(customerId, null, null, null, null)
+            }
         } catch (e: ApiException) {
             throw BridgeApiException("Failed to list virtual accounts: ${e.message}", e.code, e)
         }
@@ -196,17 +205,19 @@ class BridgeService(
 
     fun getVirtualAccountActivity(customerId: String, virtualAccountId: String): VirtualAccountHistory {
         try {
-            return virtualAccountsApi.customersCustomerIDVirtualAccountsVirtualAccountIDHistoryGet(
-                customerId,
-                virtualAccountId,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-            )
+            return timed("getVirtualAccountActivity") {
+                virtualAccountsApi.customersCustomerIDVirtualAccountsVirtualAccountIDHistoryGet(
+                    customerId,
+                    virtualAccountId,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                )
+            }
         } catch (e: ApiException) {
             throw BridgeApiException("Failed to get virtual account activity: ${e.message}", e.code, e)
         }
@@ -262,7 +273,9 @@ class BridgeService(
 
         try {
             val response =
-                httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream())
+                timed("createExternalAccount") {
+                    httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream())
+                }
             if (response.statusCode() / 100 != 2) {
                 val body = response.body()?.readBytes()?.toString(Charsets.UTF_8)
                 log.error("Failed to create external account: status=${response.statusCode()}, body=$body")
@@ -282,12 +295,9 @@ class BridgeService(
 
     fun listExternalAccounts(customerId: String): ExternalAccount1 {
         try {
-            return externalAccountsApi.customersCustomerIDExternalAccountsGet(
-                customerId,
-                null,
-                null,
-                null,
-            )
+            return timed("listExternalAccounts") {
+                externalAccountsApi.customersCustomerIDExternalAccountsGet(customerId, null, null, null)
+            }
         } catch (e: ApiException) {
             throw BridgeApiException("Failed to list external accounts: ${e.message}", e.code, e)
         }
@@ -295,12 +305,14 @@ class BridgeService(
 
     fun listLiquidationAddresses(customerId: String): LiquidationAddresses {
         try {
-            return liquidationAddressesApi.customersCustomerIDLiquidationAddressesGet(
-                customerId,
-                null,
-                null,
-                null,
-            )
+            return timed("listLiquidationAddresses") {
+                liquidationAddressesApi.customersCustomerIDLiquidationAddressesGet(
+                    customerId,
+                    null,
+                    null,
+                    null,
+                )
+            }
         } catch (e: ApiException) {
             throw BridgeApiException("Failed to list liquidation addresses: ${e.message}", e.code, e)
         }
@@ -326,11 +338,13 @@ class BridgeService(
                 .returnAddress(returnAddress)
 
         try {
-            return liquidationAddressesApi.customersCustomerIDLiquidationAddressesPost(
-                customerId,
-                idempotencyKey,
-                request,
-            )
+            return timed("createLiquidationAddress") {
+                liquidationAddressesApi.customersCustomerIDLiquidationAddressesPost(
+                    customerId,
+                    idempotencyKey,
+                    request,
+                )
+            }
         } catch (e: ApiException) {
             throw BridgeApiException("Failed to create liquidation address: ${e.message}", e.code, e)
         }
