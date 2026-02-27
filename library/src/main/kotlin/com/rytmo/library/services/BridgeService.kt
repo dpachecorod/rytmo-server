@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.rytmo.library.bridge.api.CardsApi
 import com.rytmo.library.bridge.api.CustomersApi
 import com.rytmo.library.bridge.api.ExternalAccountsApi
 import com.rytmo.library.bridge.api.KycLinksApi
@@ -12,6 +13,10 @@ import com.rytmo.library.bridge.api.LiquidationAddressesApi
 import com.rytmo.library.bridge.api.VirtualAccountsApi
 import com.rytmo.library.bridge.invoker.ApiClient
 import com.rytmo.library.bridge.invoker.ApiException
+import com.rytmo.library.bridge.model.ArrayOfAllCardAccounts
+import com.rytmo.library.bridge.model.CardAccount
+import com.rytmo.library.bridge.model.CardCryptoAccount
+import com.rytmo.library.bridge.model.CardsCryptoCurrency
 import com.rytmo.library.bridge.model.CreateIndividualCustomerPayload
 import com.rytmo.library.bridge.model.CreateKycLinks
 import com.rytmo.library.bridge.model.CreateLiquidationAddress
@@ -29,7 +34,10 @@ import com.rytmo.library.bridge.model.IndividualKycLinkResponse
 import com.rytmo.library.bridge.model.LiquidationAddressSourceChain
 import com.rytmo.library.bridge.model.LiquidationAddressSourceCurrency
 import com.rytmo.library.bridge.model.LiquidationAddresses
+import com.rytmo.library.bridge.model.ListOfCardTransactions
 import com.rytmo.library.bridge.model.OfframpChain
+import com.rytmo.library.bridge.model.OfframpChainForCards
+import com.rytmo.library.bridge.model.PostCardAccountsInput
 import com.rytmo.library.bridge.model.SepaSwiftInclusivePaymentRail
 import com.rytmo.library.bridge.model.VirtualAccountDestination
 import com.rytmo.library.bridge.model.VirtualAccountHistory
@@ -54,6 +62,7 @@ class BridgeService(
     private val externalAccountsApi: ExternalAccountsApi,
     private val liquidationAddressesApi: LiquidationAddressesApi,
     private val customersApi: CustomersApi,
+    private val cardsApi: CardsApi,
     private val meterRegistry: MeterRegistry = SimpleMeterRegistry(),
 ) {
     val log = LoggerFactory.getLogger(this::class.java.name)
@@ -95,6 +104,7 @@ class BridgeService(
                 ExternalAccountsApi(apiClient),
                 LiquidationAddressesApi(apiClient),
                 CustomersApi(apiClient),
+                CardsApi(apiClient),
                 meterRegistry = meterRegistry,
             )
         }
@@ -347,6 +357,67 @@ class BridgeService(
             }
         } catch (e: ApiException) {
             throw BridgeApiException("Failed to create liquidation address: ${e.message}", e.code, e)
+        }
+    }
+
+    fun provisionCardAccount(customerId: String, currency: String, chain: String, walletAddress: String): CardAccount {
+        val idempotencyKey = java.util.UUID.randomUUID().toString()
+        val cryptoAccount =
+            CardCryptoAccount().type(CardCryptoAccount.TypeEnum.STANDARD).address(walletAddress)
+        val request =
+            PostCardAccountsInput()
+                .currency(CardsCryptoCurrency.fromValue(currency))
+                .chain(OfframpChainForCards.fromValue(chain))
+                .cryptoAccount(cryptoAccount)
+        log.info("Provisioning card account with request: $request")
+
+        try {
+            return timed("provisionCardAccount") {
+                cardsApi.customersCustomerIDCardAccountsPost(idempotencyKey, customerId, request)
+            }
+        } catch (e: ApiException) {
+            log.error("Failed to provision card account: ${e.message}", e)
+            throw BridgeApiException("Failed to provision card account: ${e.message}", e.code, e)
+        }
+    }
+
+    fun listCardAccounts(customerId: String): ArrayOfAllCardAccounts {
+        try {
+            return timed("listCardAccounts") { cardsApi.customersCustomerIDCardAccountsGet(customerId) }
+        } catch (e: ApiException) {
+            throw BridgeApiException("Failed to list card accounts: ${e.message}", e.code, e)
+        }
+    }
+
+    fun getCardTransactions(
+        customerId: String,
+        cardAccountId: String,
+        limit: Int? = null,
+        startingTime: String? = null,
+        endingTime: String? = null,
+        pageSize: String? = null,
+        page: String? = null,
+        status: List<String>? = null,
+        paginationToken: String? = null,
+        categoryFamily: String? = null,
+    ): ListOfCardTransactions {
+        try {
+            return timed("getCardTransactions") {
+                cardsApi.customersCustomerIDCardAccountsCardAccountIDTransactionsGet(
+                    customerId,
+                    cardAccountId,
+                    limit,
+                    startingTime,
+                    endingTime,
+                    pageSize,
+                    page,
+                    status,
+                    paginationToken,
+                    categoryFamily,
+                )
+            }
+        } catch (e: ApiException) {
+            throw BridgeApiException("Failed to get card transactions: ${e.message}", e.code, e)
         }
     }
 }

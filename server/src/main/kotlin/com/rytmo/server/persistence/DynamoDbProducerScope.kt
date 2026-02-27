@@ -7,6 +7,7 @@ import com.rytmo.library.persistence.customers.CustomerDao
 import com.rytmo.library.persistence.customers.CustomerService
 import com.rytmo.library.services.BridgeCustomerService
 import com.rytmo.library.services.BridgeService
+import com.rytmo.library.services.CardAccountService
 import com.rytmo.library.services.ExternalAccountService
 import com.rytmo.library.services.KycService
 import com.rytmo.library.services.LiquidationAddressService
@@ -108,6 +109,10 @@ class DynamoDbProducerScope {
     @Singleton
     fun virtualAccountService(bridgeService: BridgeService, privyService: PrivyService, customerIdentityService: CustomerIdentityService): VirtualAccountService =
         VirtualAccountService(bridgeService, privyService, customerIdentityService)
+
+    @Produces
+    @Singleton
+    fun cardAccountService(bridgeService: BridgeService, customerIdentityService: CustomerIdentityService): CardAccountService = CardAccountService(bridgeService, customerIdentityService)
 
     @Produces
     @Singleton

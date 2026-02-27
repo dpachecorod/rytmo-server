@@ -3,6 +3,7 @@ package com.rytmo.library.services
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.rytmo.library.bridge.api.CardsApi
 import com.rytmo.library.bridge.api.CustomersApi
 import com.rytmo.library.bridge.api.ExternalAccountsApi
 import com.rytmo.library.bridge.api.KycLinksApi
@@ -64,6 +65,7 @@ class BridgeServiceTest {
     private lateinit var externalAccountsApi: ExternalAccountsApi
     private lateinit var liquidationAddressesApi: LiquidationAddressesApi
     private lateinit var customersApi: CustomersApi
+    private lateinit var cardsApi: CardsApi
     private lateinit var apiClient: ApiClient
     private lateinit var bridgeService: BridgeService
 
@@ -80,6 +82,7 @@ class BridgeServiceTest {
         externalAccountsApi = mock()
         liquidationAddressesApi = mock()
         customersApi = mock()
+        cardsApi = mock()
         apiClient = mock()
         bridgeService =
             BridgeService(
@@ -89,6 +92,7 @@ class BridgeServiceTest {
                 externalAccountsApi,
                 liquidationAddressesApi,
                 customersApi,
+                cardsApi,
             )
     }
 
