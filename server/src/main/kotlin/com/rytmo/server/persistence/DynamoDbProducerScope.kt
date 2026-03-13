@@ -8,7 +8,10 @@ import com.rytmo.library.persistence.customers.CustomerService
 import com.rytmo.library.services.BridgeCustomerService
 import com.rytmo.library.services.BridgeService
 import com.rytmo.library.services.CardAccountService
+import com.rytmo.library.services.DFlowService
 import com.rytmo.library.services.ExternalAccountService
+import com.rytmo.library.services.HeliusService
+import com.rytmo.library.services.JupiterService
 import com.rytmo.library.services.KycService
 import com.rytmo.library.services.LiquidationAddressService
 import com.rytmo.library.services.OnboardingService
@@ -125,4 +128,16 @@ class DynamoDbProducerScope {
         customerIdentityService: CustomerIdentityService,
         @ConfigProperty(name = "bridge.liquidation.return-address") returnAddress: Optional<String>,
     ): LiquidationAddressService = LiquidationAddressService(bridgeService, returnAddress.orElse(""), customerIdentityService)
+
+    @Produces
+    @Singleton
+    fun jupiterService(meterRegistry: MeterRegistry): JupiterService = JupiterService.create(meterRegistry)
+
+    @Produces
+    @Singleton
+    fun dFlowService(@ConfigProperty(name = "dflow.base-url") baseUrl: String, meterRegistry: MeterRegistry): DFlowService = DFlowService.create(baseUrl, meterRegistry)
+
+    @Produces
+    @Singleton
+    fun heliusService(@ConfigProperty(name = "helius.api-key") apiKey: String, meterRegistry: MeterRegistry): HeliusService = HeliusService.create(apiKey, meterRegistry)
 }
