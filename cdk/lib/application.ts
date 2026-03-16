@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib/core';
 import { AppConfig, Stage } from './types';
 import { DynamoDbStack } from './stacks/dynamodb-stack';
 import { NetworkStack } from './stacks/network-stack';
+import { RoutingStack } from './stacks/routing-stack';
 import { ServiceStack } from './stacks/service-stack';
 
 export class Application {
@@ -46,12 +47,22 @@ export class Application {
       tags,
     });
 
+    const routingStack = new RoutingStack(this.app, `${stackNamePrefix}-routing`, {
+      env,
+      stage,
+      hostedZoneDomain: this.config.hostedZoneDomain,
+      vpc: networkStack.vpc,
+      stackName: `${stackNamePrefix}-routing`,
+      tags,
+    });
+
     new ServiceStack(this.app, `${stackNamePrefix}-service`, {
       env,
       stage,
-      stackName: `${stackNamePrefix}-service`,
-      hostedZoneDomain: this.config.hostedZoneDomain,
       vpc: networkStack.vpc,
+      ecsSg: routingStack.ecsSg,
+      targetGroup: routingStack.targetGroup,
+      stackName: `${stackNamePrefix}-service`,
       customersTableName: dynamoDbStack.customersTable.tableName,
       customersTableArn: dynamoDbStack.customersTable.tableArn,
       customerIdentitiesTableName: dynamoDbStack.customerIdentitiesTable.tableName,

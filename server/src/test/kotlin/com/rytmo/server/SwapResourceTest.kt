@@ -1,10 +1,14 @@
 package com.rytmo.server
 
 import com.rytmo.library.exceptions.DFlowException
+import com.rytmo.library.exceptions.PrivyWalletException
 import com.rytmo.library.services.DFlowService
 import com.rytmo.library.services.HeliusService
 import com.rytmo.library.services.JupiterService
+import com.rytmo.library.services.PrivyServerWalletService
+import com.rytmo.library.services.SolanaWalletInfo
 import com.rytmo.models.swap.OutputToken
+import com.rytmo.models.swap.SwapExecuteResponse
 import com.rytmo.models.swap.SwapQuoteResponse
 import com.rytmo.models.swap.SwapStatusResponse
 import com.rytmo.models.swap.TokenBalance
@@ -15,6 +19,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.quarkus.test.junit.mockito.MockitoConfig
 import io.restassured.RestAssured
+import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -45,6 +50,139 @@ class SwapResourceTest {
     @InjectMock
     @MockitoConfig(convertScopes = true)
     lateinit var jupiterService: JupiterService
+
+    @InjectMock
+    @MockitoConfig(convertScopes = true)
+    lateinit var privyServerWalletService: PrivyServerWalletService
+
+    // ---- /swap/execute ----
+
+    @Test
+    fun `execute should return 200 with signature`() {
+        val wallet = SolanaWalletInfo(walletId = "wallet-id-123", address = "FakeWalletAddress111")
+        whenever(privyServerWalletService.getSolanaWallet(any())).thenReturn(wallet)
+        val quote =
+            SwapQuoteResponse(
+                transaction = "base64encodedtx==",
+                inputMint = "So11111111111111111111111111111111111111112",
+                outputMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                inAmount = "1000000000",
+                outAmount = "150000000",
+                executionMode = "sync",
+                slippageBps = 50,
+            )
+        whenever(dFlowService.getOrderQuote(any(), any(), any(), any(), any(), any())).thenReturn(quote)
+        whenever(privyServerWalletService.signAndSend(any(), any())).thenReturn("txsig123")
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        val response =
+            RestAssured.given()
+                .header("Authorization", "Bearer $accessToken")
+                .contentType(ContentType.JSON)
+                .body(
+                    """{"inputMint":"So11111111111111111111111111111111111111112","outputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"1000000000","slippageBps":null}""",
+                )
+                .`when`()
+                .post("/swap/execute")
+                .then()
+                .statusCode(200)
+                .extract()
+                .body()
+                .`as`(SwapExecuteResponse::class.java)
+
+        assertEquals("txsig123", response.signature)
+    }
+
+    @Test
+    fun `execute should return 200 with custom slippageBps`() {
+        val wallet = SolanaWalletInfo(walletId = "wallet-id-123", address = "FakeWalletAddress111")
+        whenever(privyServerWalletService.getSolanaWallet(any())).thenReturn(wallet)
+        val quote =
+            SwapQuoteResponse(
+                transaction = "base64encodedtx==",
+                inputMint = "So11111111111111111111111111111111111111112",
+                outputMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                inAmount = "1000000000",
+                outAmount = "150000000",
+                executionMode = "sync",
+                slippageBps = 100,
+            )
+        whenever(dFlowService.getOrderQuote(any(), any(), any(), any(), any(), any())).thenReturn(quote)
+        whenever(privyServerWalletService.signAndSend(any(), any())).thenReturn("txsig456")
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        val response =
+            RestAssured.given()
+                .header("Authorization", "Bearer $accessToken")
+                .contentType(ContentType.JSON)
+                .body(
+                    """{"inputMint":"So11111111111111111111111111111111111111112","outputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"1000000000","slippageBps":"100"}""",
+                )
+                .`when`()
+                .post("/swap/execute")
+                .then()
+                .statusCode(200)
+                .extract()
+                .body()
+                .`as`(SwapExecuteResponse::class.java)
+
+        assertEquals("txsig456", response.signature)
+    }
+
+    @Test
+    fun `execute should return 401 without token`() {
+        RestAssured.given()
+            .contentType(ContentType.JSON)
+            .body(
+                """{"inputMint":"So11111111111111111111111111111111111111112","outputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"1000000000","slippageBps":null}""",
+            )
+            .`when`()
+            .post("/swap/execute")
+            .then()
+            .statusCode(401)
+    }
+
+    @Test
+    fun `execute should return 502 when DFlow fails`() {
+        val wallet = SolanaWalletInfo(walletId = "wallet-id-123", address = "FakeWalletAddress111")
+        whenever(privyServerWalletService.getSolanaWallet(any())).thenReturn(wallet)
+        whenever(dFlowService.getOrderQuote(any(), any(), any(), any(), any(), any()))
+            .thenThrow(DFlowException("DFlow error", 500))
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        RestAssured.given()
+            .header("Authorization", "Bearer $accessToken")
+            .contentType(ContentType.JSON)
+            .body(
+                """{"inputMint":"So11111111111111111111111111111111111111112","outputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"1000000000","slippageBps":null}""",
+            )
+            .`when`()
+            .post("/swap/execute")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `execute should return 502 when Privy wallet lookup fails`() {
+        whenever(privyServerWalletService.getSolanaWallet(any()))
+            .thenThrow(PrivyWalletException("No wallet found", 404))
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        RestAssured.given()
+            .header("Authorization", "Bearer $accessToken")
+            .contentType(ContentType.JSON)
+            .body(
+                """{"inputMint":"So11111111111111111111111111111111111111112","outputMint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"1000000000","slippageBps":null}""",
+            )
+            .`when`()
+            .post("/swap/execute")
+            .then()
+            .statusCode(502)
+    }
 
     // ---- /swap/quote ----
 

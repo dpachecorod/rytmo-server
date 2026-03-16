@@ -5,10 +5,9 @@ import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.rytmo.server.utils.AccessTokenUtil.KEY_ID
 import io.quarkus.test.junit.QuarkusTestProfile
 
-class PrivyTestProfile : QuarkusTestProfile {
+class BackendWalletTestProfile : QuarkusTestProfile {
     override fun getConfigOverrides(): Map<String, String> {
         val ecJWK = ECKeyGenerator(Curve.P_256).keyID(KEY_ID).generate()
-
         val privateEcJwkJson = ecJWK.toJSONString()
         val publicEcJwkJson = ecJWK.toPublicJWK().toJSONString()
 
@@ -21,8 +20,7 @@ class PrivyTestProfile : QuarkusTestProfile {
             "dynamodb.table.customers" to "test-customers",
             "dynamodb.table.customer-identities" to "test-customer-identities",
             "pagination.encryption-key" to "test-encryption-key-32!",
-            "swap.sponsorship-mode" to "privy",
-            "swap.fee-payer-private-key" to "",
+            "swap.sponsorship-mode" to "backend-wallet",
         )
     }
 }

@@ -83,6 +83,7 @@ tasks.jacocoTestReport {
 }
 
 tasks.jacocoTestCoverageVerification {
+    mustRunAfter(tasks.processResources, tasks.compileKotlin, tasks.classes)
     executionData.setFrom(layout.buildDirectory.file("jacoco-quarkus.exec"))
 
     violationRules {

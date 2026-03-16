@@ -1,14 +1,12 @@
 import * as cdk from 'aws-cdk-lib/core';
-import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cw from 'aws-cdk-lib/aws-cloudwatch';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import * as route53 from 'aws-cdk-lib/aws-route53';
-import * as route53targets from 'aws-cdk-lib/aws-route53-targets';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Construct } from 'constructs';
@@ -16,8 +14,9 @@ import { Stage } from '../types';
 
 export interface ServiceStackProps extends cdk.StackProps {
   stage: Stage;
-  hostedZoneDomain: string;
   vpc: ec2.Vpc;
+  ecsSg: ec2.SecurityGroup;
+  targetGroup: elbv2.ApplicationTargetGroup;
   customersTableName: string;
   customersTableArn: string;
   customerIdentitiesTableName: string;
@@ -25,22 +24,17 @@ export interface ServiceStackProps extends cdk.StackProps {
 }
 
 export class ServiceStack extends cdk.Stack {
-  public readonly repository: ecr.Repository;
-
   constructor(scope: Construct, id: string, props: ServiceStackProps) {
     super(scope, id, props);
 
-    const { stage, hostedZoneDomain, vpc } = props;
+    const { stage, vpc, ecsSg, targetGroup } = props;
     const serviceConfig = stage.serviceConfig!;
-    const apiDomain = `${stage.stageName}.api.${hostedZoneDomain}`;
 
-    // ── ECR ─────────────────────────────────────────────────────────────────
+    // ── Docker Image ─────────────────────────────────────────────────────────
 
-    this.repository = new ecr.Repository(this, 'Repository', {
-      repositoryName: `${stage.stageName}-rytmo-server`,
-      removalPolicy: stage.isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-      emptyOnDelete: !stage.isProd,
-      lifecycleRules: [{ maxImageCount: 10, description: 'Keep last 10 images' }],
+    const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../server'), {
+      file: 'src/main/docker/Dockerfile.jvm',
+      platform: ecrAssets.Platform.LINUX_AMD64,
     });
 
     // ── ECS Cluster ──────────────────────────────────────────────────────────
@@ -104,6 +98,42 @@ export class ServiceStack extends cdk.Stack {
       removalPolicy: stage.isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     });
 
+    // ── SSM Parameters ───────────────────────────────────────────────────────
+
+    const ssmPrefix = `/${stage.stageName}/rytmo`;
+
+    const requiredSecrets: Record<string, string> = {
+      BRIDGE_API_KEY: serviceConfig.bridgeApiKey,
+      BRIDGE_WEBHOOK_PUBLIC_KEY_PEM: serviceConfig.bridgeWebhookPublicKeyPem,
+      PRIVY_APP_ID: serviceConfig.privyAppId,
+      PRIVY_APP_SECRET: serviceConfig.privyAppSecret,
+      PRIVY_AUTHORIZATION_KEY: serviceConfig.privyAuthorizationKey,
+      PAGINATION_ENCRYPTION_KEY: serviceConfig.paginationEncryptionKey,
+      HELIUS_API_KEY: serviceConfig.heliusApiKey,
+    };
+    const missing = Object.entries(requiredSecrets)
+      .filter(([, v]) => !v)
+      .map(([k]) => k);
+    if (missing.length > 0) {
+      throw new Error(`Missing required secrets in cdk/.env: ${missing.join(', ')}`);
+    }
+
+    const mkParam = (id: string, name: string, value: string) =>
+      new ssm.StringParameter(this, id, {
+        parameterName: `${ssmPrefix}/${name}`,
+        stringValue: value,
+      });
+
+    const bridgeApiKeyParam = mkParam('BridgeApiKey', 'bridge-api-key', serviceConfig.bridgeApiKey);
+    const bridgeWebhookKeyParam = mkParam('BridgeWebhookKey', 'bridge-webhook-public-key-pem', serviceConfig.bridgeWebhookPublicKeyPem);
+    const privyAppIdParam = mkParam('PrivyAppId', 'privy-app-id', serviceConfig.privyAppId);
+    const privyAppSecretParam = mkParam('PrivyAppSecret', 'privy-app-secret', serviceConfig.privyAppSecret);
+    const privyAuthorizationKeyParam = mkParam('PrivyAuthorizationKey', 'privy-authorization-key', serviceConfig.privyAuthorizationKey);
+    const paginationKeyParam = mkParam('PaginationKey', 'pagination-encryption-key', serviceConfig.paginationEncryptionKey);
+    const heliusApiKeyParam = mkParam('HeliusApiKey', 'helius-api-key', serviceConfig.heliusApiKey);
+
+    const swapFeePayerKeyParam = mkParam('SwapFeePayerKey', 'swap-fee-payer-private-key', serviceConfig.swapFeePayerPrivateKey || ' ');
+
     // ── Task Definition ──────────────────────────────────────────────────────
 
     const taskDef = new ecs.FargateTaskDefinition(this, 'TaskDef', {
@@ -116,24 +146,33 @@ export class ServiceStack extends cdk.Stack {
 
     taskDef.addContainer('server', {
       containerName: 'server',
-      image: ecs.ContainerImage.fromEcrRepository(this.repository, 'latest'),
+      image,
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'server', logGroup }),
       environment: {
         DYNAMODB_TABLE_CUSTOMERS: props.customersTableName,
         DYNAMODB_TABLE_CUSTOMER_IDENTITIES: props.customerIdentitiesTableName,
-        BRIDGE_API_KEY: serviceConfig.bridgeApiKey,
         BRIDGE_BASE_URL: serviceConfig.bridgeBaseUrl,
         BRIDGE_LIQUIDATION_RETURN_ADDRESS: serviceConfig.bridgeLiquidationReturnAddress,
-        BRIDGE_WEBHOOK_PUBLIC_KEY_PEM: serviceConfig.bridgeWebhookPublicKeyPem,
-        PRIVY_APP_ID: serviceConfig.privyAppId,
         PRIVY_JWKS_URL: `https://auth.privy.io/api/v1/apps/${serviceConfig.privyAppId}/jwks.json`,
-        PAGINATION_ENCRYPTION_KEY: serviceConfig.paginationEncryptionKey,
+        SOLANA_USDC_MINT: serviceConfig.solanaUsdcMint,
+        PRIVY_SOLANA_CAIP2: serviceConfig.solanaCaip2,
+        SWAP_SPONSORSHIP_MODE: serviceConfig.swapSponsorshipMode,
         AWS_REGION: stage.region,
         METRICS_CLOUDWATCH_ENABLED: 'true',
         METRICS_CLOUDWATCH_NAMESPACE: `${stage.stageName}/rytmo-api`,
       },
+      secrets: {
+        BRIDGE_API_KEY: ecs.Secret.fromSsmParameter(bridgeApiKeyParam),
+        BRIDGE_WEBHOOK_PUBLIC_KEY_PEM: ecs.Secret.fromSsmParameter(bridgeWebhookKeyParam),
+        PRIVY_APP_ID: ecs.Secret.fromSsmParameter(privyAppIdParam),
+        PRIVY_APP_SECRET: ecs.Secret.fromSsmParameter(privyAppSecretParam),
+        PRIVY_AUTHORIZATION_KEY: ecs.Secret.fromSsmParameter(privyAuthorizationKeyParam),
+        PAGINATION_ENCRYPTION_KEY: ecs.Secret.fromSsmParameter(paginationKeyParam),
+        HELIUS_API_KEY: ecs.Secret.fromSsmParameter(heliusApiKeyParam),
+        SWAP_FEE_PAYER_PRIVATE_KEY: ecs.Secret.fromSsmParameter(swapFeePayerKeyParam),
+      },
       portMappings: [{ containerPort: 8080 }],
-      // Liveness probe — ECS restarts the task if this fails
+      // Liveness probe - ECS restarts the task if this fails
       healthCheck: {
         command: ['CMD-SHELL', 'curl -f http://localhost:8080/q/health/live || exit 1'],
         interval: cdk.Duration.seconds(30),
@@ -143,78 +182,9 @@ export class ServiceStack extends cdk.Stack {
       },
     });
 
-    // ── Security Groups ──────────────────────────────────────────────────────
-
-    const albSg = new ec2.SecurityGroup(this, 'AlbSg', {
-      vpc,
-      securityGroupName: `${stage.stageName}-alb-sg`,
-      description: 'ALB — allow HTTP and HTTPS from the internet',
-    });
-    albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'HTTP');
-    albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'HTTPS');
-
-    const ecsSg = new ec2.SecurityGroup(this, 'EcsSg', {
-      vpc,
-      securityGroupName: `${stage.stageName}-ecs-sg`,
-      description: 'ECS tasks — allow port 8080 from ALB only',
-    });
-    ecsSg.addIngressRule(albSg, ec2.Port.tcp(8080), 'From ALB');
-
-    // ── Load Balancer ────────────────────────────────────────────────────────
-
-    const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
-      loadBalancerName: `${stage.stageName}-rytmo`,
-      vpc,
-      internetFacing: true,
-      securityGroup: albSg,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-    });
-
-    // ACM certificate — DNS validated against the existing hosted zone
-    const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
-      domainName: hostedZoneDomain,
-    });
-
-    const certificate = new acm.Certificate(this, 'Certificate', {
-      domainName: apiDomain,
-      validation: acm.CertificateValidation.fromDns(hostedZone),
-    });
-
-    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'TargetGroup', {
-      targetGroupName: `${stage.stageName}-rytmo`,
-      vpc,
-      port: 8080,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      targetType: elbv2.TargetType.IP,
-      healthCheck: {
-        path: '/q/health/live',
-        interval: cdk.Duration.seconds(30),
-        healthyThresholdCount: 2,
-        unhealthyThresholdCount: 3,
-        timeout: cdk.Duration.seconds(5),
-      },
-      deregistrationDelay: cdk.Duration.seconds(30),
-    });
-
-    // HTTP → HTTPS redirect
-    alb.addListener('HttpListener', {
-      port: 80,
-      defaultAction: elbv2.ListenerAction.redirect({
-        protocol: 'HTTPS',
-        port: '443',
-        permanent: true,
-      }),
-    });
-
-    alb.addListener('HttpsListener', {
-      port: 443,
-      certificates: [certificate],
-      defaultAction: elbv2.ListenerAction.forward([targetGroup]),
-    });
-
     // ── ECS Service ──────────────────────────────────────────────────────────
 
-    // Tasks run in public subnets with a public IP — no NAT Gateway needed.
+    // Tasks run in public subnets with a public IP - no NAT Gateway needed.
     // Inbound is locked down to port 8080 from the ALB security group only.
     const service = new ecs.FargateService(this, 'Service', {
       serviceName: `${stage.stageName}-rytmo`,
@@ -276,7 +246,7 @@ export class ServiceStack extends cdk.Stack {
           }),
       );
 
-    // SEARCH expression — discovers all matching metrics at runtime without hardcoding.
+    // SEARCH expression - discovers all matching metrics at runtime without hardcoding.
     const search = (schema: string, metricName: string, stat: string, extraFilter = ''): cw.MathExpression => {
       const filter = extraFilter ? ` ${extraFilter}` : '';
       return new cw.MathExpression({
@@ -318,39 +288,19 @@ export class ServiceStack extends cdk.Stack {
         ],
         [
           new cw.GraphWidget({
-            title: 'Bridge Dependency Max Latency (ms) — all operations',
+            title: 'Bridge Dependency Max Latency (ms) - all operations',
             left: [search('operation', 'bridge.request.max', 'Maximum')],
             width: 12,
             height: 6,
           }),
           new cw.GraphWidget({
-            title: 'Privy Dependency Max Latency (ms) — all operations',
+            title: 'Privy Dependency Max Latency (ms) - all operations',
             left: [search('operation', 'privy.request.max', 'Maximum')],
             width: 12,
             height: 6,
           }),
         ],
       ],
-    });
-
-    // ── DNS ──────────────────────────────────────────────────────────────────
-
-    new route53.ARecord(this, 'ApiDnsRecord', {
-      zone: hostedZone,
-      recordName: apiDomain,
-      target: route53.RecordTarget.fromAlias(new route53targets.LoadBalancerTarget(alb)),
-    });
-
-    // ── Outputs ──────────────────────────────────────────────────────────────
-
-    new cdk.CfnOutput(this, 'ApiUrl', {
-      value: `https://${apiDomain}`,
-      exportName: `${stage.stageName}-api-url`,
-    });
-
-    new cdk.CfnOutput(this, 'EcrRepositoryUri', {
-      value: this.repository.repositoryUri,
-      exportName: `${stage.stageName}-ecr-repository-uri`,
     });
   }
 }

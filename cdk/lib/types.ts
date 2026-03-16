@@ -16,11 +16,18 @@ export interface ServiceConfig {
   // Non-sensitive config — hardcoded per stage
   bridgeBaseUrl: string;
   bridgeLiquidationReturnAddress: string;
+  solanaUsdcMint: string;
+  solanaCaip2: string;
   // Sensitive values — injected via env vars at deploy time (see .env.example)
   bridgeApiKey: string;
   bridgeWebhookPublicKeyPem: string;
   privyAppId: string;
+  privyAppSecret: string;
+  privyAuthorizationKey: string;
   paginationEncryptionKey: string;
+  heliusApiKey: string;
+  swapSponsorshipMode: string;
+  swapFeePayerPrivateKey: string;
 }
 
 export interface AppConfig {

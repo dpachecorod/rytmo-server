@@ -40,6 +40,8 @@ class BridgeWebhookTestProfile : QuarkusTestProfile {
             "dynamodb.table.customers" to "test-customers",
             "dynamodb.table.customer-identities" to "test-customer-identities",
             "pagination.encryption-key" to "test-encryption-key-32!",
+            "swap.sponsorship-mode" to "privy",
+            "swap.fee-payer-private-key" to "",
         )
     }
 }

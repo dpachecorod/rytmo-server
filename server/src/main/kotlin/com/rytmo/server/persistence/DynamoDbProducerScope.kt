@@ -15,7 +15,10 @@ import com.rytmo.library.services.JupiterService
 import com.rytmo.library.services.KycService
 import com.rytmo.library.services.LiquidationAddressService
 import com.rytmo.library.services.OnboardingService
+import com.rytmo.library.services.PrivyServerWalletService
 import com.rytmo.library.services.PrivyService
+import com.rytmo.library.services.SolanaService
+import com.rytmo.library.services.SwapSponsorService
 import com.rytmo.library.services.VirtualAccountService
 import io.micrometer.core.instrument.MeterRegistry
 import io.privy.api.PrivyApiClient
@@ -33,9 +36,9 @@ import java.util.Optional
 class DynamoDbProducerScope {
     @Produces
     @ApplicationScoped
-    fun dynamoDbClient(@ConfigProperty(name = "AWS_PROFILE") awsProfile: String?, @ConfigProperty(name = "AWS_REGION") awsRegion: String): DynamoDbClient {
-        if (awsProfile != null) {
-            val provider = ProfileCredentialsProvider.create(awsProfile)
+    fun dynamoDbClient(@ConfigProperty(name = "AWS_PROFILE") awsProfile: Optional<String>, @ConfigProperty(name = "AWS_REGION") awsRegion: String): DynamoDbClient {
+        if (awsProfile.isPresent && awsProfile.get().isNotBlank()) {
+            val provider = ProfileCredentialsProvider.create(awsProfile.get())
             return DynamoDbClient.builder()
                 .region(Region.of(awsRegion))
                 .credentialsProvider(provider)
@@ -140,4 +143,31 @@ class DynamoDbProducerScope {
     @Produces
     @Singleton
     fun heliusService(@ConfigProperty(name = "helius.api-key") apiKey: String, meterRegistry: MeterRegistry): HeliusService = HeliusService.create(apiKey, meterRegistry)
+
+    @Produces
+    @Singleton
+    fun privyServerWalletService(
+        privyApiClient: PrivyApiClient,
+        @ConfigProperty(name = "privy.app-id") appId: String,
+        @ConfigProperty(name = "privy.solana-caip2") solanaCaip2: String,
+        @ConfigProperty(name = "privy.authorization-key") authorizationKey: String,
+        meterRegistry: MeterRegistry,
+    ): PrivyServerWalletService = PrivyServerWalletService(privyApiClient, appId, solanaCaip2, authorizationKey, meterRegistry)
+
+    @Produces
+    @Singleton
+    fun solanaService(@ConfigProperty(name = "helius.rpc-url") rpcUrl: String, @ConfigProperty(name = "solana.usdc-mint") usdcMint: String, meterRegistry: MeterRegistry): SolanaService =
+        SolanaService(rpcUrl, usdcMint, meterRegistry)
+
+    @Produces
+    @Singleton
+    fun swapSponsorService(
+        privyServerWalletService: PrivyServerWalletService,
+        solanaService: SolanaService,
+        @ConfigProperty(name = "swap.fee-payer-private-key") feePayerPrivateKey: Optional<String>,
+    ): SwapSponsorService = SwapSponsorService.create(
+        privyServerWalletService,
+        solanaService,
+        feePayerPrivateKey.orElse(""),
+    )
 }

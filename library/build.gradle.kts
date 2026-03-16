@@ -201,6 +201,10 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.0")
     implementation("jakarta.annotation:jakarta.annotation-api:2.1.1")
 
+    // Solana transaction building
+    implementation("org.sol4k:sol4k:0.5.18")
+
+
     // AWS DynamoDB Enhanced Client
     implementation(platform("software.amazon.awssdk:bom:2.30.26"))
     implementation("software.amazon.awssdk:dynamodb-enhanced")
