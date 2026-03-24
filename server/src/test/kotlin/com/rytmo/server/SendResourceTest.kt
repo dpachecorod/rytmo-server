@@ -4,6 +4,8 @@ import com.rytmo.library.exceptions.PrivyWalletException
 import com.rytmo.library.services.PrivyServerWalletService
 import com.rytmo.library.services.SolanaService
 import com.rytmo.library.services.SolanaWalletInfo
+import com.rytmo.library.services.SwapSponsorService
+import com.rytmo.models.send.SendSolanaPartialResponse
 import com.rytmo.models.send.SendSolanaResponse
 import com.rytmo.server.test.PrivyTestProfile
 import com.rytmo.server.utils.AccessTokenUtil
@@ -39,15 +41,19 @@ class SendResourceTest {
     @MockitoConfig(convertScopes = true)
     lateinit var solanaService: SolanaService
 
+    @InjectMock
+    @MockitoConfig(convertScopes = true)
+    lateinit var swapSponsorService: SwapSponsorService
+
     // ---- /send/solana ----
 
     @Test
-    fun `sendSolana should return 200 with signature`() {
+    fun `sendSolana should return 200 with partialTransaction`() {
         val wallet = SolanaWalletInfo(walletId = "wallet-id-123", address = "SenderWalletAddress111")
         whenever(privyServerWalletService.getSolanaWallet(any())).thenReturn(wallet)
-        whenever(solanaService.buildUsdcTransferTransaction(any(), any(), any()))
+        whenever(solanaService.buildSplTransferTransaction(any(), any(), any(), any(), any()))
             .thenReturn("base64tx==")
-        whenever(privyServerWalletService.signAndSend(any(), any())).thenReturn("sendSig456")
+        whenever(swapSponsorService.prepare(any())).thenReturn("partialTxBase64==")
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
 
@@ -55,23 +61,27 @@ class SendResourceTest {
             RestAssured.given()
                 .header("Authorization", "Bearer $accessToken")
                 .contentType(ContentType.JSON)
-                .body("""{"recipientAddress":"RecipientWallet222","amountUsdc":10.5}""")
+                .body(
+                    """{"recipientAddress":"RecipientWallet222","mintAddress":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"10500000","decimals":6}""",
+                )
                 .`when`()
                 .post("/send/solana")
                 .then()
                 .statusCode(200)
                 .extract()
                 .body()
-                .`as`(SendSolanaResponse::class.java)
+                .`as`(SendSolanaPartialResponse::class.java)
 
-        assertEquals("sendSig456", response.signature)
+        assertEquals("partialTxBase64==", response.partialTransaction)
     }
 
     @Test
     fun `sendSolana should return 401 without token`() {
         RestAssured.given()
             .contentType(ContentType.JSON)
-            .body("""{"recipientAddress":"RecipientWallet222","amountUsdc":10.5}""")
+            .body(
+                """{"recipientAddress":"RecipientWallet222","mintAddress":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"10500000","decimals":6}""",
+            )
             .`when`()
             .post("/send/solana")
             .then()
@@ -88,7 +98,9 @@ class SendResourceTest {
         RestAssured.given()
             .header("Authorization", "Bearer $accessToken")
             .contentType(ContentType.JSON)
-            .body("""{"recipientAddress":"RecipientWallet222","amountUsdc":10.5}""")
+            .body(
+                """{"recipientAddress":"RecipientWallet222","mintAddress":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"10500000","decimals":6}""",
+            )
             .`when`()
             .post("/send/solana")
             .then()
@@ -99,7 +111,7 @@ class SendResourceTest {
     fun `sendSolana should return 400 when amount is invalid`() {
         val wallet = SolanaWalletInfo(walletId = "wallet-id-123", address = "SenderWalletAddress111")
         whenever(privyServerWalletService.getSolanaWallet(any())).thenReturn(wallet)
-        whenever(solanaService.buildUsdcTransferTransaction(any(), any(), any()))
+        whenever(solanaService.buildSplTransferTransaction(any(), any(), any(), any(), any()))
             .thenThrow(IllegalArgumentException("Invalid recipient address"))
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
@@ -107,10 +119,82 @@ class SendResourceTest {
         RestAssured.given()
             .header("Authorization", "Bearer $accessToken")
             .contentType(ContentType.JSON)
-            .body("""{"recipientAddress":"bad-address","amountUsdc":10.5}""")
+            .body(
+                """{"recipientAddress":"bad-address","mintAddress":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","amount":"10500000","decimals":6}""",
+            )
             .`when`()
             .post("/send/solana")
             .then()
             .statusCode(400)
+    }
+
+    // ---- /send/submit ----
+
+    @Test
+    fun `submit should return 200 with signature`() {
+        whenever(solanaService.submit(any(), any())).thenReturn("sendSig789")
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        val response =
+            RestAssured.given()
+                .header("Authorization", "Bearer $accessToken")
+                .contentType(ContentType.JSON)
+                .body("""{"signedTransaction":"fullysignedtxbase64=="}""")
+                .`when`()
+                .post("/send/submit")
+                .then()
+                .statusCode(200)
+                .extract()
+                .body()
+                .`as`(SendSolanaResponse::class.java)
+
+        assertEquals("sendSig789", response.signature)
+    }
+
+    @Test
+    fun `submit should return 401 without token`() {
+        RestAssured.given()
+            .contentType(ContentType.JSON)
+            .body("""{"signedTransaction":"fullysignedtxbase64=="}""")
+            .`when`()
+            .post("/send/submit")
+            .then()
+            .statusCode(401)
+    }
+
+    @Test
+    fun `submit should return 502 with RPC message when preflight fails`() {
+        whenever(solanaService.submit(any(), any()))
+            .thenThrow(
+                IllegalStateException("Helius RPC sendTransaction failed [400]: insufficient funds"),
+            )
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        RestAssured.given()
+            .header("Authorization", "Bearer $accessToken")
+            .contentType(ContentType.JSON)
+            .body("""{"signedTransaction":"fullysignedtxbase64=="}""")
+            .`when`()
+            .post("/send/submit")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `submit should return 502 when Solana submit fails`() {
+        whenever(solanaService.submit(any(), any())).thenThrow(RuntimeException("RPC error"))
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        RestAssured.given()
+            .header("Authorization", "Bearer $accessToken")
+            .contentType(ContentType.JSON)
+            .body("""{"signedTransaction":"fullysignedtxbase64=="}""")
+            .`when`()
+            .post("/send/submit")
+            .then()
+            .statusCode(502)
     }
 }

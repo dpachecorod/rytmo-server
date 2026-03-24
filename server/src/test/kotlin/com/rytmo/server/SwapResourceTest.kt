@@ -6,10 +6,13 @@ import com.rytmo.library.services.DFlowService
 import com.rytmo.library.services.HeliusService
 import com.rytmo.library.services.JupiterService
 import com.rytmo.library.services.PrivyServerWalletService
+import com.rytmo.library.services.SolanaService
 import com.rytmo.library.services.SolanaWalletInfo
+import com.rytmo.library.services.SwapSponsorService
 import com.rytmo.models.swap.OutputToken
 import com.rytmo.models.swap.SwapExecuteResponse
 import com.rytmo.models.swap.SwapHistoryResponse
+import com.rytmo.models.swap.SwapPrepareResponse
 import com.rytmo.models.swap.SwapQuoteResponse
 import com.rytmo.models.swap.SwapStatusResponse
 import com.rytmo.models.swap.TokenBalance
@@ -56,10 +59,18 @@ class SwapResourceTest {
     @MockitoConfig(convertScopes = true)
     lateinit var privyServerWalletService: PrivyServerWalletService
 
+    @InjectMock
+    @MockitoConfig(convertScopes = true)
+    lateinit var swapSponsorService: SwapSponsorService
+
+    @InjectMock
+    @MockitoConfig(convertScopes = true)
+    lateinit var solanaService: SolanaService
+
     // ---- /swap/execute ----
 
     @Test
-    fun `execute should return 200 with signature`() {
+    fun `execute should return 200 with partialTransaction`() {
         val wallet = SolanaWalletInfo(walletId = "wallet-id-123", address = "FakeWalletAddress111")
         whenever(privyServerWalletService.getSolanaWallet(any())).thenReturn(wallet)
         val quote =
@@ -73,7 +84,7 @@ class SwapResourceTest {
                 slippageBps = 50,
             )
         whenever(dFlowService.getOrderQuote(any(), any(), any(), any(), any(), any())).thenReturn(quote)
-        whenever(privyServerWalletService.signAndSend(any(), any())).thenReturn("txsig123")
+        whenever(swapSponsorService.prepare(any())).thenReturn("partialTxBase64==")
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
 
@@ -90,9 +101,9 @@ class SwapResourceTest {
                 .statusCode(200)
                 .extract()
                 .body()
-                .`as`(SwapExecuteResponse::class.java)
+                .`as`(SwapPrepareResponse::class.java)
 
-        assertEquals("txsig123", response.signature)
+        assertEquals("partialTxBase64==", response.partialTransaction)
     }
 
     @Test
@@ -110,7 +121,7 @@ class SwapResourceTest {
                 slippageBps = 100,
             )
         whenever(dFlowService.getOrderQuote(any(), any(), any(), any(), any(), any())).thenReturn(quote)
-        whenever(privyServerWalletService.signAndSend(any(), any())).thenReturn("txsig456")
+        whenever(swapSponsorService.prepare(any())).thenReturn("partialTxBase64==")
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
 
@@ -127,9 +138,9 @@ class SwapResourceTest {
                 .statusCode(200)
                 .extract()
                 .body()
-                .`as`(SwapExecuteResponse::class.java)
+                .`as`(SwapPrepareResponse::class.java)
 
-        assertEquals("txsig456", response.signature)
+        assertEquals("partialTxBase64==", response.partialTransaction)
     }
 
     @Test
@@ -181,6 +192,57 @@ class SwapResourceTest {
             )
             .`when`()
             .post("/swap/execute")
+            .then()
+            .statusCode(502)
+    }
+
+    // ---- /swap/submit ----
+
+    @Test
+    fun `submit should return 200 with signature`() {
+        whenever(solanaService.submit(any(), any())).thenReturn("txsig123")
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        val response =
+            RestAssured.given()
+                .header("Authorization", "Bearer $accessToken")
+                .contentType(ContentType.JSON)
+                .body("""{"signedTransaction":"fullysignedtxbase64=="}""")
+                .`when`()
+                .post("/swap/submit")
+                .then()
+                .statusCode(200)
+                .extract()
+                .body()
+                .`as`(SwapExecuteResponse::class.java)
+
+        assertEquals("txsig123", response.signature)
+    }
+
+    @Test
+    fun `submit should return 401 without token`() {
+        RestAssured.given()
+            .contentType(ContentType.JSON)
+            .body("""{"signedTransaction":"fullysignedtxbase64=="}""")
+            .`when`()
+            .post("/swap/submit")
+            .then()
+            .statusCode(401)
+    }
+
+    @Test
+    fun `submit should return 502 when Solana submit fails`() {
+        whenever(solanaService.submit(any(), any())).thenThrow(RuntimeException("RPC error"))
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        RestAssured.given()
+            .header("Authorization", "Bearer $accessToken")
+            .contentType(ContentType.JSON)
+            .body("""{"signedTransaction":"fullysignedtxbase64=="}""")
+            .`when`()
+            .post("/swap/submit")
             .then()
             .statusCode(502)
     }
@@ -440,7 +502,7 @@ class SwapResourceTest {
                 fills = emptyList(),
                 error = null,
             )
-        whenever(dFlowService.getOrderStatus(any(), anyOrNull())).thenReturn(status)
+        whenever(solanaService.getSignatureStatus(any())).thenReturn(status)
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
 
@@ -462,7 +524,7 @@ class SwapResourceTest {
     @Test
     fun `getStatus should return 200 with open status`() {
         val status = SwapStatusResponse(status = "open", fills = emptyList(), error = null)
-        whenever(dFlowService.getOrderStatus(any(), anyOrNull())).thenReturn(status)
+        whenever(solanaService.getSignatureStatus(any())).thenReturn(status)
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
 
@@ -482,6 +544,28 @@ class SwapResourceTest {
     }
 
     @Test
+    fun `getStatus should return 200 with not_found when tx dropped`() {
+        val status = SwapStatusResponse(status = "not_found", fills = emptyList(), error = null)
+        whenever(solanaService.getSignatureStatus(any())).thenReturn(status)
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        val response =
+            RestAssured.given()
+                .header("Authorization", "Bearer $accessToken")
+                .queryParam("signature", "fakeSig123")
+                .`when`()
+                .get("/swap/status")
+                .then()
+                .statusCode(200)
+                .extract()
+                .body()
+                .`as`(SwapStatusResponse::class.java)
+
+        assertEquals("not_found", response.status)
+    }
+
+    @Test
     fun `getStatus should return 401 without token`() {
         RestAssured.given()
             .queryParam("signature", "fakeSig123")
@@ -493,8 +577,8 @@ class SwapResourceTest {
 
     @Test
     fun `getStatus should return 502 when DFlow fails`() {
-        whenever(dFlowService.getOrderStatus(any(), anyOrNull()))
-            .thenThrow(DFlowException("DFlow error", 500))
+        whenever(solanaService.getSignatureStatus(any()))
+            .thenThrow(RuntimeException("Solana RPC error"))
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
 

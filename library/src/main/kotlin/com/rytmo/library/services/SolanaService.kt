@@ -57,32 +57,32 @@ class SolanaService(private val heliusRpcUrl: String, private val usdcMintAddres
             ?: throw IllegalStateException("No blockhash in RPC response: ${response.body()}")
     }
 
-    fun buildUsdcTransferTransaction(fromAddress: String, toAddress: String, lamports: Long): String = timed("buildUsdcTransferTransaction") {
+    fun buildSplTransferTransaction(fromAddress: String, toAddress: String, mintAddress: String, amount: Long, decimals: Int): String = timed("buildSplTransferTransaction") {
         val blockhash = getLatestBlockhash()
 
         val fromPubkey = PublicKey(fromAddress)
         val toPubkey = PublicKey(toAddress)
-        val usdcMint = PublicKey(usdcMintAddress)
+        val mint = PublicKey(mintAddress)
 
-        val senderAta = PublicKey.findProgramDerivedAddress(fromPubkey, usdcMint).publicKey
-        val recipientAta = PublicKey.findProgramDerivedAddress(toPubkey, usdcMint).publicKey
+        val senderAta = PublicKey.findProgramDerivedAddress(fromPubkey, mint).publicKey
+        val recipientAta = PublicKey.findProgramDerivedAddress(toPubkey, mint).publicKey
 
         val createAtaInstruction =
             CreateAssociatedTokenAccountInstruction(
                 payer = fromPubkey,
                 associatedToken = recipientAta,
                 owner = toPubkey,
-                mint = usdcMint,
+                mint = mint,
             )
 
         val transferInstruction =
             SplTransferInstruction(
                 from = senderAta,
                 to = recipientAta,
-                mint = usdcMint,
+                mint = mint,
                 owner = fromPubkey,
-                amount = lamports,
-                decimals = USDC_DECIMALS,
+                amount = amount,
+                decimals = decimals,
             )
 
         val instructions = listOf(createAtaInstruction, transferInstruction)
@@ -96,7 +96,7 @@ class SolanaService(private val heliusRpcUrl: String, private val usdcMintAddres
         for (instruction in instructions) {
             val programId = instruction.programId.toBase58()
             check(programId in allowedPrograms) {
-                "Unexpected program in USDC transfer transaction: $programId"
+                "Unexpected program in SPL transfer transaction: $programId"
             }
         }
 
@@ -130,7 +130,7 @@ class SolanaService(private val heliusRpcUrl: String, private val usdcMintAddres
         val statusNode = root.get("result")?.get("value")?.get(0)
         when {
             statusNode == null || statusNode.isNull ->
-                SwapStatusResponse(status = "open", fills = emptyList(), error = null)
+                SwapStatusResponse(status = "not_found", fills = emptyList(), error = null)
             statusNode.get("err") != null && !statusNode.get("err").isNull ->
                 SwapStatusResponse(
                     status = "error",
@@ -238,9 +238,58 @@ class SolanaService(private val heliusRpcUrl: String, private val usdcMintAddres
         return Base64.getEncoder().encodeToString(result)
     }
 
-    fun submit(txBase64: String): String {
+    fun getAtaAddress(ownerAddress: String, mintAddress: String): String {
+        val ownerPubkey = PublicKey(ownerAddress)
+        val mintPubkey = PublicKey(mintAddress)
+        return PublicKey.findProgramDerivedAddress(ownerPubkey, mintPubkey).publicKey.toBase58()
+    }
+
+    fun accountExists(address: String): Boolean {
         val body =
-            """{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":["$txBase64",{"encoding":"base64","maxRetries":0,"skipPreflight":true}]}"""
+            """{"jsonrpc":"2.0","id":1,"method":"getAccountInfo","params":["$address",{"encoding":"base64"}]}"""
+        val request =
+            HttpRequest.newBuilder()
+                .uri(URI.create(heliusRpcUrl))
+                .timeout(Duration.ofSeconds(15))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build()
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        if (response.statusCode() !in 200..299) {
+            throw IllegalStateException(
+                "Helius RPC getAccountInfo failed [${response.statusCode()}]: ${response.body()}",
+            )
+        }
+        val root = objectMapper.readTree(response.body())
+        val value = root.get("result")?.get("value")
+        return value != null && !value.isNull
+    }
+
+    fun buildAndSubmitAtaCreation(userAddress: String, mintAddress: String, feePayerKeypairBytes: ByteArray): String {
+        val blockhash = getLatestBlockhash()
+        val feePayerKeypair = Keypair.fromSecretKey(feePayerKeypairBytes)
+        val feePayerPubkey = PublicKey(feePayerKeypair.publicKey.bytes())
+        val userPubkey = PublicKey(userAddress)
+        val mintPubkey = PublicKey(mintAddress)
+        val ataAddress = PublicKey.findProgramDerivedAddress(userPubkey, mintPubkey).publicKey
+        val createAtaInstruction =
+            CreateAssociatedTokenAccountInstruction(
+                payer = feePayerPubkey,
+                associatedToken = ataAddress,
+                owner = userPubkey,
+                mint = mintPubkey,
+            )
+        val message =
+            TransactionMessage.newMessage(feePayerPubkey, blockhash, listOf(createAtaInstruction))
+        val messageBytes = message.serialize()
+        val signature = feePayerKeypair.sign(messageBytes)
+        val txBytes = byteArrayOf(0x01.toByte()) + signature + messageBytes
+        return submit(Base64.getEncoder().encodeToString(txBytes))
+    }
+
+    fun submit(txBase64: String, skipPreflight: Boolean = true): String {
+        val body =
+            """{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":["$txBase64",{"encoding":"base64","maxRetries":0,"skipPreflight":$skipPreflight}]}"""
         val request =
             HttpRequest.newBuilder()
                 .uri(URI.create(heliusRpcUrl))

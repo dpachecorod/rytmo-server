@@ -13,8 +13,10 @@ import com.rytmo.models.swap.OutputToken
 import com.rytmo.models.swap.SwapExecuteRequest
 import com.rytmo.models.swap.SwapExecuteResponse
 import com.rytmo.models.swap.SwapHistoryResponse
+import com.rytmo.models.swap.SwapPrepareResponse
 import com.rytmo.models.swap.SwapQuoteResponse
 import com.rytmo.models.swap.SwapStatusResponse
+import com.rytmo.models.swap.SwapSubmitRequest
 import com.rytmo.models.swap.TokenBalance
 import com.rytmo.server.auth.PrivyProtected
 import com.rytmo.server.auth.filters.PrivyAuthFilterScope
@@ -29,7 +31,6 @@ import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
-import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.eclipse.microprofile.openapi.annotations.enums.SchemaType
 import org.eclipse.microprofile.openapi.annotations.media.Content
 import org.eclipse.microprofile.openapi.annotations.media.Schema
@@ -50,12 +51,9 @@ class SwapResource {
 
     @Inject lateinit var privyServerWalletService: PrivyServerWalletService
 
-    @Inject lateinit var solanaService: SolanaService
-
     @Inject lateinit var swapSponsorService: SwapSponsorService
 
-    @ConfigProperty(name = "swap.sponsorship-mode", defaultValue = "privy")
-    lateinit var sponsorshipMode: String
+    @Inject lateinit var solanaService: SolanaService
 
     @POST
     @Path("/execute")
@@ -66,7 +64,7 @@ class SwapResource {
         [
             Content(
                 mediaType = "application/json",
-                schema = Schema(implementation = SwapExecuteResponse::class),
+                schema = Schema(implementation = SwapPrepareResponse::class),
             ),
         ],
     )
@@ -98,19 +96,9 @@ class SwapResource {
                 quote.outAmount,
                 quote.executionMode,
             )
-            val signature =
-                if (sponsorshipMode == "backend-wallet") {
-                    swapSponsorService.execute(
-                        wallet.walletId,
-                        quote.transaction,
-                        wallet.address,
-                        quote.outputMint,
-                    )
-                } else {
-                    privyServerWalletService.signAndSend(wallet.walletId, quote.transaction)
-                }
-            log.info("Swap execute success — walletAddress={} signature={}", wallet.address, signature)
-            Response.ok(SwapExecuteResponse(signature)).build()
+            val partialTx = swapSponsorService.prepare(quote.transaction)
+            log.info("Swap prepare success — walletAddress={}", wallet.address)
+            Response.ok(SwapPrepareResponse(partialTx)).build()
         } catch (e: DFlowException) {
             log.error("DFlow execute failed [${e.statusCode}]: ${e.message}")
             Response.status(Response.Status.BAD_GATEWAY)
@@ -125,6 +113,30 @@ class SwapResource {
                 .entity(mapOf("error" to "Swap execution failed"))
                 .build()
         }
+    }
+
+    @POST
+    @Path("/submit")
+    @PrivyProtected
+    @APIResponse(
+        responseCode = "200",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = SwapExecuteResponse::class),
+            ),
+        ],
+    )
+    fun submit(request: SwapSubmitRequest, @Context requestContext: ContainerRequestContext): Response = try {
+        val signature = solanaService.submit(request.signedTransaction)
+        log.info("Swap submit success — signature={}", signature)
+        Response.ok(SwapExecuteResponse(signature)).build()
+    } catch (e: Exception) {
+        log.error("Swap submit failed: ${e.message}", e)
+        Response.status(Response.Status.BAD_GATEWAY)
+            .entity(mapOf("error" to "Swap submission failed"))
+            .build()
     }
 
     @GET
@@ -252,19 +264,20 @@ class SwapResource {
         ],
     )
     fun getStatus(@Context requestContext: ContainerRequestContext, @QueryParam("signature") signature: String, @QueryParam("lastValidBlockHeight") lastValidBlockHeight: Long?): Response = try {
-        val status =
-            if (sponsorshipMode == "backend-wallet") {
-                solanaService.getSignatureStatus(signature)
-            } else {
-                dFlowService.getOrderStatus(signature, lastValidBlockHeight)
-            }
+        val status = solanaService.getSignatureStatus(signature)
         log.debug(
             "Swap status poll — signature={} status={} error={}",
             signature,
             status.status,
             status.error,
         )
-        if (status.status != "open") {
+
+        if (status.status == "not_found") {
+            log.warn(
+                "Swap tx not found on chain — signature={} (likely dropped: insufficient fee payer SOL, invalid signatures, or expired blockhash)",
+                signature,
+            )
+        } else if (status.status != "open") {
             log.info(
                 "Swap status terminal — signature={} status={} error={}",
                 signature,

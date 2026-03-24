@@ -160,10 +160,18 @@ class DynamoDbProducerScope {
     fun privyServerWalletService(
         privyApiClient: PrivyApiClient,
         @ConfigProperty(name = "privy.app-id") appId: String,
+        @ConfigProperty(name = "privy.app-secret") appSecret: String,
         @ConfigProperty(name = "privy.solana-caip2") solanaCaip2: String,
         @ConfigProperty(name = "privy.authorization-key") authorizationKey: String,
         meterRegistry: MeterRegistry,
-    ): PrivyServerWalletService = PrivyServerWalletService(privyApiClient, appId, solanaCaip2, authorizationKey, meterRegistry)
+    ): PrivyServerWalletService = PrivyServerWalletService(
+        privyApiClient,
+        appId,
+        appSecret,
+        solanaCaip2,
+        authorizationKey,
+        meterRegistry,
+    )
 
     @Produces
     @Singleton
@@ -175,10 +183,12 @@ class DynamoDbProducerScope {
     fun swapSponsorService(
         privyServerWalletService: PrivyServerWalletService,
         solanaService: SolanaService,
-        @ConfigProperty(name = "swap.fee-payer-private-key") feePayerPrivateKey: Optional<String>,
-    ): SwapSponsorService = SwapSponsorService.create(
+        @ConfigProperty(name = "swap.fee-payer-wallet-id") feePayerWalletId: String,
+        @ConfigProperty(name = "swap.fee-payer-wallet-address") feePayerWalletAddress: String,
+    ): SwapSponsorService = SwapSponsorService(
         privyServerWalletService,
         solanaService,
-        feePayerPrivateKey.orElse(""),
+        feePayerWalletId,
+        feePayerWalletAddress,
     )
 }
