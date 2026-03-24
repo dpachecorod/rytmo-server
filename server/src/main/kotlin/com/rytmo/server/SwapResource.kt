@@ -12,6 +12,7 @@ import com.rytmo.models.auth.AuthorizedUser
 import com.rytmo.models.swap.OutputToken
 import com.rytmo.models.swap.SwapExecuteRequest
 import com.rytmo.models.swap.SwapExecuteResponse
+import com.rytmo.models.swap.SwapHistoryResponse
 import com.rytmo.models.swap.SwapQuoteResponse
 import com.rytmo.models.swap.SwapStatusResponse
 import com.rytmo.models.swap.TokenBalance
@@ -74,6 +75,14 @@ class SwapResource {
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
         return try {
             val wallet = privyServerWalletService.getSolanaWallet(authorizedUser.userId)
+            log.info(
+                "Swap execute — userId={} walletAddress={} inputMint={} outputMint={} amount={}",
+                authorizedUser.userId,
+                wallet.address,
+                request.inputMint,
+                request.outputMint,
+                request.amount,
+            )
             val quote =
                 dFlowService.getOrderQuote(
                     userPublicKey = wallet.address,
@@ -82,12 +91,25 @@ class SwapResource {
                     amount = request.amount,
                     slippageBps = request.slippageBps ?: "auto",
                 )
+            log.info(
+                "DFlow quote received — walletAddress={} inAmount={} outAmount={} mode={}",
+                wallet.address,
+                quote.inAmount,
+                quote.outAmount,
+                quote.executionMode,
+            )
             val signature =
                 if (sponsorshipMode == "backend-wallet") {
-                    swapSponsorService.execute(wallet.walletId, quote.transaction)
+                    swapSponsorService.execute(
+                        wallet.walletId,
+                        quote.transaction,
+                        wallet.address,
+                        quote.outputMint,
+                    )
                 } else {
                     privyServerWalletService.signAndSend(wallet.walletId, quote.transaction)
                 }
+            log.info("Swap execute success — walletAddress={} signature={}", wallet.address, signature)
             Response.ok(SwapExecuteResponse(signature)).build()
         } catch (e: DFlowException) {
             log.error("DFlow execute failed [${e.statusCode}]: ${e.message}")
@@ -189,6 +211,34 @@ class SwapResource {
     }
 
     @GET
+    @Path("/history")
+    @PrivyProtected
+    @APIResponse(
+        responseCode = "200",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = SwapHistoryResponse::class),
+            ),
+        ],
+    )
+    fun getHistory(@Context requestContext: ContainerRequestContext, @QueryParam("paginationToken") paginationToken: String?, @QueryParam("limit") limit: Int?): Response {
+        val authorizedUser =
+            requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
+        return try {
+            val wallet = privyServerWalletService.getSolanaWallet(authorizedUser.userId)
+            val history = heliusService.getSwapHistory(wallet.address, paginationToken, limit ?: 10)
+            Response.ok(history).build()
+        } catch (e: Exception) {
+            log.error("Swap history failed: ${e.message}", e)
+            Response.status(Response.Status.BAD_GATEWAY)
+                .entity(mapOf("error" to "Failed to get swap history"))
+                .build()
+        }
+    }
+
+    @GET
     @Path("/status")
     @PrivyProtected
     @APIResponse(
@@ -208,6 +258,20 @@ class SwapResource {
             } else {
                 dFlowService.getOrderStatus(signature, lastValidBlockHeight)
             }
+        log.debug(
+            "Swap status poll — signature={} status={} error={}",
+            signature,
+            status.status,
+            status.error,
+        )
+        if (status.status != "open") {
+            log.info(
+                "Swap status terminal — signature={} status={} error={}",
+                signature,
+                status.status,
+                status.error,
+            )
+        }
         Response.ok(status).build()
     } catch (e: DFlowException) {
         log.error("DFlow status failed [${e.statusCode}]: ${e.message}")

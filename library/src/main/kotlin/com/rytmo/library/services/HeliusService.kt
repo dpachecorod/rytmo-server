@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import com.rytmo.models.swap.SwapHistoryItem
+import com.rytmo.models.swap.SwapHistoryResponse
 import com.rytmo.models.swap.TokenBalance
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -15,7 +17,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 
-class HeliusService(private val rpcUrl: String, private val meterRegistry: MeterRegistry) {
+class HeliusService(private val rpcUrl: String, private val apiKey: String, private val meterRegistry: MeterRegistry, private val assetsBaseUrl: String = "") {
 
     private val client: HttpClient by lazy {
         HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
@@ -25,6 +27,27 @@ class HeliusService(private val rpcUrl: String, private val meterRegistry: Meter
         ObjectMapper()
             .registerKotlinModule()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+
+    private val logoBySymbol: Map<String, String> by lazy {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        data class AllowlistEntry(val symbol: String, val logo: String? = null)
+        val stream = javaClass.getResourceAsStream("/token-allowlist.json") ?: return@lazy emptyMap()
+        val entries =
+            objectMapper.readValue(
+                stream,
+                objectMapper.typeFactory.constructCollectionType(
+                    List::class.java,
+                    AllowlistEntry::class.java,
+                ),
+            ) as List<AllowlistEntry>
+        entries.mapNotNull { e -> e.logo?.let { e.symbol to it } }.toMap()
+    }
+
+    private fun logoUrl(symbol: String?): String? = if (assetsBaseUrl.isNotEmpty() && symbol != null) {
+        logoBySymbol[symbol]?.let { "$assetsBaseUrl/tokens/$it" }
+    } else {
+        null
+    }
 
     private fun <T> timed(operation: String, block: () -> T): T = Timer.builder("helius.request")
         .tag("operation", operation)
@@ -74,7 +97,8 @@ class HeliusService(private val rpcUrl: String, private val meterRegistry: Meter
                     decimals = 9,
                     priceUsd = nativeBalance.pricePerSol,
                     imageUrl =
-                    "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png",
+                    logoUrl("SOL")
+                        ?: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png",
                 ),
             )
         }
@@ -92,7 +116,7 @@ class HeliusService(private val rpcUrl: String, private val meterRegistry: Meter
                         balance = token.balance?.toString() ?: "0",
                         decimals = token.decimals ?: 0,
                         priceUsd = token.price_info?.pricePerToken,
-                        imageUrl = asset.content?.links?.image,
+                        imageUrl = logoUrl(token.symbol) ?: asset.content?.links?.image,
                     ),
                 )
             }
@@ -128,10 +152,79 @@ class HeliusService(private val rpcUrl: String, private val meterRegistry: Meter
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class PriceInfo(@JsonProperty("price_per_token") val pricePerToken: Double?)
 
+    fun getSwapHistory(walletAddress: String, paginationToken: String?, limit: Int): SwapHistoryResponse = timed("getSwapHistory") {
+        val params =
+            mutableMapOf<String, Any>("transactionDetails" to "signatures", "limit" to limit)
+        if (paginationToken != null) params["paginationToken"] = paginationToken
+        val body =
+            objectMapper.writeValueAsString(
+                mapOf(
+                    "jsonrpc" to "2.0",
+                    "id" to "1",
+                    "method" to "getTransactionsForAddress",
+                    "params" to listOf(walletAddress, params),
+                ),
+            )
+        val request =
+            HttpRequest.newBuilder()
+                .uri(URI.create(rpcUrl))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build()
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        if (response.statusCode() !in 200..299) {
+            throw IllegalStateException(
+                "Helius getTransactionsForAddress failed [${response.statusCode()}]: ${response.body()}",
+            )
+        }
+        val root = objectMapper.readTree(response.body())
+        val error = root.get("error")
+        if (error != null && !error.isNull) {
+            throw IllegalStateException(
+                "Helius getTransactionsForAddress error: $error",
+            )
+        }
+        val result =
+            root.get("result")
+                ?: throw IllegalStateException(
+                    "No result in getTransactionsForAddress response: ${response.body()}",
+                )
+        val data =
+            result.get("data")
+                ?: throw IllegalStateException(
+                    "No data in getTransactionsForAddress response: ${response.body()}",
+                )
+        val nextCursor = result.get("paginationToken")?.takeIf { !it.isNull }?.asText()
+        val items =
+            objectMapper.convertValue(
+                data,
+                objectMapper.typeFactory.constructCollectionType(
+                    List::class.java,
+                    HeliusTxEntry::class.java,
+                ),
+            ) as List<HeliusTxEntry>
+        SwapHistoryResponse(
+            items =
+            items.map { tx ->
+                SwapHistoryItem(
+                    signature = tx.signature,
+                    timestamp = tx.blockTime,
+                    success = tx.err == null,
+                    confirmationStatus = tx.confirmationStatus,
+                )
+            },
+            nextCursor = nextCursor,
+        )
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class HeliusTxEntry(val signature: String = "", val blockTime: Long? = null, val err: Any? = null, val confirmationStatus: String? = null)
+
     companion object {
-        fun create(apiKey: String, meterRegistry: MeterRegistry = SimpleMeterRegistry()): HeliusService {
+        fun create(apiKey: String, meterRegistry: MeterRegistry = SimpleMeterRegistry(), assetsBaseUrl: String = ""): HeliusService {
             val rpcUrl = "https://mainnet.helius-rpc.com/?api-key=$apiKey"
-            return HeliusService(rpcUrl, meterRegistry)
+            return HeliusService(rpcUrl, apiKey, meterRegistry, assetsBaseUrl)
         }
     }
 }

@@ -6,6 +6,7 @@ import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -134,6 +135,31 @@ export class ServiceStack extends cdk.Stack {
 
     const swapFeePayerKeyParam = mkParam('SwapFeePayerKey', 'swap-fee-payer-private-key', serviceConfig.swapFeePayerPrivateKey || ' ');
 
+    const deframeApiKeyParam = mkParam('DeframeApiKey', 'deframe-api-key', serviceConfig.deframeApiKey || ' ');
+
+    // ── Assets Bucket ────────────────────────────────────────────────────────
+
+    const assetsBucket = new s3.Bucket(this, 'AssetsBucket', {
+      bucketName: `${stage.stageName}-rytmo-assets`,
+      blockPublicAccess: new s3.BlockPublicAccess({
+        blockPublicAcls: true,
+        ignorePublicAcls: true,
+        blockPublicPolicy: false,
+        restrictPublicBuckets: false,
+      }),
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    assetsBucket.addToResourcePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        resources: [assetsBucket.arnForObjects('tokens/*')],
+        principals: [new iam.StarPrincipal()],
+      }),
+    );
+
+    const assetsBaseUrl = `https://${assetsBucket.bucketRegionalDomainName}`;
+
     // ── Task Definition ──────────────────────────────────────────────────────
 
     const taskDef = new ecs.FargateTaskDefinition(this, 'TaskDef', {
@@ -157,6 +183,8 @@ export class ServiceStack extends cdk.Stack {
         SOLANA_USDC_MINT: serviceConfig.solanaUsdcMint,
         PRIVY_SOLANA_CAIP2: serviceConfig.solanaCaip2,
         SWAP_SPONSORSHIP_MODE: serviceConfig.swapSponsorshipMode,
+        ASSETS_BASE_URL: assetsBaseUrl,
+        DEFRAME_BASE_URL: 'https://api.deframe.io',
         AWS_REGION: stage.region,
         METRICS_CLOUDWATCH_ENABLED: 'true',
         METRICS_CLOUDWATCH_NAMESPACE: `${stage.stageName}/rytmo-api`,
@@ -170,6 +198,7 @@ export class ServiceStack extends cdk.Stack {
         PAGINATION_ENCRYPTION_KEY: ecs.Secret.fromSsmParameter(paginationKeyParam),
         HELIUS_API_KEY: ecs.Secret.fromSsmParameter(heliusApiKeyParam),
         SWAP_FEE_PAYER_PRIVATE_KEY: ecs.Secret.fromSsmParameter(swapFeePayerKeyParam),
+        DEFRAME_API_KEY: ecs.Secret.fromSsmParameter(deframeApiKeyParam),
       },
       portMappings: [{ containerPort: 8080 }],
       // Liveness probe - ECS restarts the task if this fails

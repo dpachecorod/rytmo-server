@@ -9,6 +9,7 @@ import com.rytmo.library.bridge.model.VirtualAccountEventSource
 import com.rytmo.library.bridge.model.VirtualAccountHistory
 import com.rytmo.library.bridge.model.VirtualAccountResponse
 import com.rytmo.library.bridge.model.VirtualAccountSourceDepositInstructions
+import com.rytmo.library.bridge.model.VirtualAccountSourceDepositInstructionsMx
 import com.rytmo.library.bridge.model.VirtualAccountSourceDepositInstructionsUs
 import com.rytmo.library.bridge.model.VirtualAccountSourcePaymentRails
 import com.rytmo.library.bridge.model.VirtualAccounts
@@ -214,6 +215,104 @@ class VirtualAccountServiceTest {
         assertTrue(exception.message?.contains("Failed to create virtual account") == true)
         assertNotNull(exception.cause)
         assertTrue(exception.cause is BridgeApiException)
+    }
+
+    @Test
+    fun `createByExternalId should default bankName to STP when null for US deposit`() {
+        val externalId = "did:privy:user123"
+        val internalCustomerId = "customer-123"
+        val bridgeCustomerId = "bridge-cust-456"
+        val walletAddress = "0xabc123def456"
+
+        whenever(customerIdentityService.getInternalCustomerIdByExternalId(externalId))
+            .thenReturn(internalCustomerId)
+        whenever(customerIdentityService.getIdentity(internalCustomerId, "bridge"))
+            .thenReturn(
+                CustomerIdentityDynamoDbBean().apply {
+                    this.internalCustomerId = internalCustomerId
+                    provider = "bridge"
+                    this.externalId = bridgeCustomerId
+                },
+            )
+        whenever(privyService.getWallet(any())).thenReturn(CryptoWallet(walletAddress))
+
+        val bridgeResponse =
+            VirtualAccountResponse()
+                .id("va_001")
+                .sourceDepositInstructions(
+                    VirtualAccountSourceDepositInstructions(
+                        VirtualAccountSourceDepositInstructionsUs()
+                            .paymentRail(VirtualAccountSourcePaymentRails.ACH_PUSH)
+                            .currency(VirtualAccountSourceDepositInstructionsUs.CurrencyEnum.USD)
+                            .bankRoutingNumber("111000025")
+                            .bankAccountNumber("000123456789"),
+                    ),
+                )
+        whenever(bridgeService.createVirtualAccount(any(), any(), any(), any(), any()))
+            .thenReturn(bridgeResponse)
+
+        val result =
+            virtualAccountService.createByExternalId(
+                externalId,
+                CreateVirtualAccountRequest(
+                    walletId = "wallet-789",
+                    sourceCurrency = "usd",
+                    sourcePaymentRail = "ach",
+                    destinationCurrency = "usdc",
+                    destinationPaymentRail = "base",
+                ),
+            )
+
+        assertEquals("STP", result.sourceDepositInstructions?.bankName)
+    }
+
+    @Test
+    fun `createByExternalId should default bankName to STP when null for MX deposit`() {
+        val externalId = "did:privy:user123"
+        val internalCustomerId = "customer-123"
+        val bridgeCustomerId = "bridge-cust-456"
+        val walletAddress = "0xabc123def456"
+
+        whenever(customerIdentityService.getInternalCustomerIdByExternalId(externalId))
+            .thenReturn(internalCustomerId)
+        whenever(customerIdentityService.getIdentity(internalCustomerId, "bridge"))
+            .thenReturn(
+                CustomerIdentityDynamoDbBean().apply {
+                    this.internalCustomerId = internalCustomerId
+                    provider = "bridge"
+                    this.externalId = bridgeCustomerId
+                },
+            )
+        whenever(privyService.getWallet(any())).thenReturn(CryptoWallet(walletAddress))
+
+        val bridgeResponse =
+            VirtualAccountResponse()
+                .id("va_002")
+                .sourceDepositInstructions(
+                    VirtualAccountSourceDepositInstructions(
+                        VirtualAccountSourceDepositInstructionsMx()
+                            .clabe("646180111800000001")
+                            .currency(VirtualAccountSourceDepositInstructionsMx.CurrencyEnum.MXN)
+                            .accountHolderName("Test User"),
+                    ),
+                )
+        whenever(bridgeService.createVirtualAccount(any(), any(), any(), any(), any()))
+            .thenReturn(bridgeResponse)
+
+        val result =
+            virtualAccountService.createByExternalId(
+                externalId,
+                CreateVirtualAccountRequest(
+                    walletId = "wallet-789",
+                    sourceCurrency = "mxn",
+                    sourcePaymentRail = "spei",
+                    destinationCurrency = "usdc",
+                    destinationPaymentRail = "base",
+                ),
+            )
+
+        assertEquals("STP", result.sourceDepositInstructions?.bankName)
+        assertEquals("646180111800000001", result.sourceDepositInstructions?.clabe)
     }
 
     @Test

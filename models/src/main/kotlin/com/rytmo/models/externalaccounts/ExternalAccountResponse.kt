@@ -9,4 +9,5 @@ data class ExternalAccountResponse(
     val createdAt: String? = null,
     val updatedAt: String? = null,
     val address: ExternalAccountAddress? = null,
+    val liquidationAddress: String? = null,
 )

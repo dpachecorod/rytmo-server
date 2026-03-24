@@ -28,6 +28,7 @@ export interface ServiceConfig {
   heliusApiKey: string;
   swapSponsorshipMode: string;
   swapFeePayerPrivateKey: string;
+  deframeApiKey: string;
 }
 
 export interface AppConfig {

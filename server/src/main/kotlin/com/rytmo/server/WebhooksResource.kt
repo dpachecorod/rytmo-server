@@ -43,11 +43,11 @@ class WebhooksResource {
 
         val event = objectMapper.readValue(payload, WebhookEvent::class.java)
 
-        if (event.eventType == "event_address.created") {
+        if (event.eventType == "external_account.created") {
             try {
                 liquidationAddressService.handleAddressCreatedEvent(event.eventObject)
             } catch (e: Exception) {
-                log.error("Failed to handle event_address.created webhook: ${e.message}", e)
+                log.error("Failed to handle external_account.created webhook: ${e.message}", e)
             }
         }
 

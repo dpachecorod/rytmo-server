@@ -42,7 +42,7 @@ class WebhooksResourceTest {
             "api_version": "2024-01",
             "event_id": "evt_789",
             "event_category": "address",
-            "event_type": "event_address.created",
+            "event_type": "external_account.created",
             "event_object": {"customer_id": "bridge-cust-456", "external_account_id": "ext_acct_789"},
             "event_object_changes": null,
             "event_created_at": "2024-01-15T10:00:00Z"

@@ -1,5 +1,6 @@
 package com.rytmo.library.services
 
+import com.rytmo.library.bridge.model.ExternalAccountResponse
 import com.rytmo.library.bridge.model.LiquidationAddress
 import com.rytmo.library.bridge.model.LiquidationAddressSourceChain
 import com.rytmo.library.bridge.model.LiquidationAddressSourceCurrency
@@ -36,12 +37,14 @@ class LiquidationAddressServiceTest {
     }
 
     @Test
-    fun `handleAddressCreatedEvent should create liquidation address with correct params`() {
+    fun `handleAddressCreatedEvent should use spei and mxn for MXN external account`() {
         val eventObject =
             mapOf(
                 "customer_id" to "bridge-cust-456",
-                "external_account_id" to "ext_acct_789",
+                "id" to "ext_acct_789",
             )
+        whenever(bridgeService.getExternalAccount("bridge-cust-456", "ext_acct_789"))
+            .thenReturn(ExternalAccountResponse(null, null, null, null, null, null).currency("mxn"))
 
         liquidationAddressService.handleAddressCreatedEvent(eventObject)
 
@@ -51,15 +54,39 @@ class LiquidationAddressServiceTest {
                 currency = LiquidationAddressService.CURRENCY,
                 chain = LiquidationAddressService.CHAIN,
                 externalAccountId = "ext_acct_789",
-                destinationPaymentRail = LiquidationAddressService.DESTINATION_PAYMENT_RAIL,
-                destinationCurrency = LiquidationAddressService.DESTINATION_CURRENCY,
+                destinationPaymentRail = "spei",
+                destinationCurrency = "mxn",
+                returnAddress = returnAddress,
+            )
+    }
+
+    @Test
+    fun `handleAddressCreatedEvent should use ach and usd for USD external account`() {
+        val eventObject =
+            mapOf(
+                "customer_id" to "bridge-cust-456",
+                "id" to "ext_acct_789",
+            )
+        whenever(bridgeService.getExternalAccount("bridge-cust-456", "ext_acct_789"))
+            .thenReturn(ExternalAccountResponse(null, null, null, null, null, null).currency("usd"))
+
+        liquidationAddressService.handleAddressCreatedEvent(eventObject)
+
+        verify(bridgeService)
+            .createLiquidationAddress(
+                customerId = "bridge-cust-456",
+                currency = LiquidationAddressService.CURRENCY,
+                chain = LiquidationAddressService.CHAIN,
+                externalAccountId = "ext_acct_789",
+                destinationPaymentRail = "ach",
+                destinationCurrency = "usd",
                 returnAddress = returnAddress,
             )
     }
 
     @Test
     fun `handleAddressCreatedEvent should throw when customer_id missing from event`() {
-        val eventObject = mapOf("external_account_id" to "ext_acct_789")
+        val eventObject = mapOf("id" to "ext_acct_789")
 
         val exception =
             assertThrows(LiquidationAddressException::class.java) {
@@ -72,7 +99,7 @@ class LiquidationAddressServiceTest {
     }
 
     @Test
-    fun `handleAddressCreatedEvent should throw when external_account_id missing from event`() {
+    fun `handleAddressCreatedEvent should throw when id missing from event`() {
         val eventObject = mapOf("customer_id" to "bridge-cust-456")
 
         val exception =
@@ -80,7 +107,7 @@ class LiquidationAddressServiceTest {
                 liquidationAddressService.handleAddressCreatedEvent(eventObject)
             }
 
-        assertTrue(exception.message?.contains("Missing external_account_id") == true)
+        assertTrue(exception.message?.contains("Missing id") == true)
         verify(bridgeService, never())
             .createLiquidationAddress(any(), any(), any(), any(), any(), any(), any())
     }
@@ -90,9 +117,11 @@ class LiquidationAddressServiceTest {
         val eventObject =
             mapOf(
                 "customer_id" to "bridge-cust-456",
-                "external_account_id" to "ext_acct_789",
+                "id" to "ext_acct_789",
             )
 
+        whenever(bridgeService.getExternalAccount("bridge-cust-456", "ext_acct_789"))
+            .thenReturn(ExternalAccountResponse(null, null, null, null, null, null).currency("mxn"))
         whenever(
             bridgeService.createLiquidationAddress(any(), any(), any(), any(), any(), any(), any()),
         )
@@ -136,7 +165,7 @@ class LiquidationAddressServiceTest {
                     )
                         .id("liq_addr_001")
                         .currency(LiquidationAddressSourceCurrency.USDC)
-                        .chain(LiquidationAddressSourceChain.BASE)
+                        .chain(LiquidationAddressSourceChain.SOLANA)
                         .externalAccountId("ext_acct_789"),
                 )
 
@@ -147,7 +176,7 @@ class LiquidationAddressServiceTest {
         assertEquals(1, result.size)
         assertEquals("liq_addr_001", result[0].id)
         assertEquals("usdc", result[0].currency)
-        assertEquals("base", result[0].chain)
+        assertEquals("solana", result[0].chain)
         assertEquals("ext_acct_789", result[0].externalAccountId)
         assertEquals("0xcrypto-address", result[0].address)
         assertEquals("2024-01-15T10:00:01Z", result[0].createdAt)

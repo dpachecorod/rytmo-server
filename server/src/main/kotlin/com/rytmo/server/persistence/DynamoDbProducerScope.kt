@@ -9,6 +9,7 @@ import com.rytmo.library.services.BridgeCustomerService
 import com.rytmo.library.services.BridgeService
 import com.rytmo.library.services.CardAccountService
 import com.rytmo.library.services.DFlowService
+import com.rytmo.library.services.DeframeService
 import com.rytmo.library.services.ExternalAccountService
 import com.rytmo.library.services.HeliusService
 import com.rytmo.library.services.JupiterService
@@ -134,7 +135,7 @@ class DynamoDbProducerScope {
 
     @Produces
     @Singleton
-    fun jupiterService(meterRegistry: MeterRegistry): JupiterService = JupiterService.create(meterRegistry)
+    fun jupiterService(@ConfigProperty(name = "assets.base-url") assetsBaseUrl: String, meterRegistry: MeterRegistry): JupiterService = JupiterService.create(assetsBaseUrl, meterRegistry)
 
     @Produces
     @Singleton
@@ -142,7 +143,17 @@ class DynamoDbProducerScope {
 
     @Produces
     @Singleton
-    fun heliusService(@ConfigProperty(name = "helius.api-key") apiKey: String, meterRegistry: MeterRegistry): HeliusService = HeliusService.create(apiKey, meterRegistry)
+    fun deframeService(
+        @ConfigProperty(name = "deframe.api-key") apiKey: String,
+        @ConfigProperty(name = "deframe.base-url", defaultValue = "https://api.deframe.io")
+        baseUrl: String,
+        meterRegistry: MeterRegistry,
+    ): DeframeService = DeframeService.create(apiKey, baseUrl, meterRegistry)
+
+    @Produces
+    @Singleton
+    fun heliusService(@ConfigProperty(name = "helius.api-key") apiKey: String, @ConfigProperty(name = "assets.base-url") assetsBaseUrl: String, meterRegistry: MeterRegistry): HeliusService =
+        HeliusService.create(apiKey, meterRegistry, assetsBaseUrl)
 
     @Produces
     @Singleton

@@ -1,5 +1,6 @@
 package com.rytmo.library.webhooks
 
+import org.slf4j.LoggerFactory
 import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.PublicKey
@@ -12,6 +13,7 @@ data class SignatureVerificationResult(val isValid: Boolean, val errorMessage: S
 class BridgeWebhookSignatureVerifier(private val publicKeyPem: String) {
     companion object {
         private const val TIMESTAMP_MAX_AGE_MS = 600_000L
+        private val log = LoggerFactory.getLogger(BridgeWebhookSignatureVerifier::class.java)
     }
 
     fun verify(payload: String, signatureHeader: String): SignatureVerificationResult {
@@ -30,6 +32,12 @@ class BridgeWebhookSignatureVerifier(private val publicKeyPem: String) {
 
             SignatureVerificationResult(isValid, if (isValid) null else "Invalid signature")
         } catch (e: Exception) {
+            log.error(
+                "Signature verification failed — header: {}, error: {}",
+                signatureHeader,
+                e.message,
+                e,
+            )
             SignatureVerificationResult(false, "Signature verification failed: ${e.message}")
         }
     }
@@ -63,6 +71,7 @@ class BridgeWebhookSignatureVerifier(private val publicKeyPem: String) {
             publicKeyPem
                 .replace("-----BEGIN PUBLIC KEY-----", "")
                 .replace("-----END PUBLIC KEY-----", "")
+                .replace("\\n", "")
                 .replace("\\s".toRegex(), "")
 
         val keyBytes = Base64.getDecoder().decode(publicKeyContent)

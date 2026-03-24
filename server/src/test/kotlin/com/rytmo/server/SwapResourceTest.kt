@@ -9,6 +9,7 @@ import com.rytmo.library.services.PrivyServerWalletService
 import com.rytmo.library.services.SolanaWalletInfo
 import com.rytmo.models.swap.OutputToken
 import com.rytmo.models.swap.SwapExecuteResponse
+import com.rytmo.models.swap.SwapHistoryResponse
 import com.rytmo.models.swap.SwapQuoteResponse
 import com.rytmo.models.swap.SwapStatusResponse
 import com.rytmo.models.swap.TokenBalance
@@ -368,6 +369,67 @@ class SwapResourceTest {
             .statusCode(502)
     }
 
+    // ---- /swap/history ----
+
+    @Test
+    fun `getHistory should return 200 with items`() {
+        val wallet = SolanaWalletInfo(walletId = "wallet-id-123", address = "FakeWalletAddress111")
+        whenever(privyServerWalletService.getSolanaWallet(any())).thenReturn(wallet)
+        val history =
+            SwapHistoryResponse(
+                items =
+                listOf(
+                    com.rytmo.models.swap.SwapHistoryItem(
+                        signature = "sig1",
+                        timestamp = 1700000000L,
+                        success = true,
+                        confirmationStatus = "finalized",
+                    ),
+                ),
+                nextCursor = null,
+            )
+        whenever(heliusService.getSwapHistory(any(), anyOrNull(), any())).thenReturn(history)
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        val response =
+            RestAssured.given()
+                .header("Authorization", "Bearer $accessToken")
+                .`when`()
+                .get("/swap/history")
+                .then()
+                .statusCode(200)
+                .extract()
+                .body()
+                .`as`(SwapHistoryResponse::class.java)
+
+        assertEquals(1, response.items.size)
+        assertEquals("sig1", response.items[0].signature)
+        assertEquals("finalized", response.items[0].confirmationStatus)
+    }
+
+    @Test
+    fun `getHistory should return 401 without token`() {
+        RestAssured.given().`when`().get("/swap/history").then().statusCode(401)
+    }
+
+    @Test
+    fun `getHistory should return 502 when Helius fails`() {
+        val wallet = SolanaWalletInfo(walletId = "wallet-id-123", address = "FakeWalletAddress111")
+        whenever(privyServerWalletService.getSolanaWallet(any())).thenReturn(wallet)
+        whenever(heliusService.getSwapHistory(any(), anyOrNull(), any()))
+            .thenThrow(RuntimeException("Helius error"))
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        RestAssured.given()
+            .header("Authorization", "Bearer $accessToken")
+            .`when`()
+            .get("/swap/history")
+            .then()
+            .statusCode(502)
+    }
+
     // ---- /swap/status ----
 
     @Test
@@ -395,6 +457,28 @@ class SwapResourceTest {
                 .`as`(SwapStatusResponse::class.java)
 
         assertEquals("closed", response.status)
+    }
+
+    @Test
+    fun `getStatus should return 200 with open status`() {
+        val status = SwapStatusResponse(status = "open", fills = emptyList(), error = null)
+        whenever(dFlowService.getOrderStatus(any(), anyOrNull())).thenReturn(status)
+
+        val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
+
+        val response =
+            RestAssured.given()
+                .header("Authorization", "Bearer $accessToken")
+                .queryParam("signature", "fakeSig123")
+                .`when`()
+                .get("/swap/status")
+                .then()
+                .statusCode(200)
+                .extract()
+                .body()
+                .`as`(SwapStatusResponse::class.java)
+
+        assertEquals("open", response.status)
     }
 
     @Test

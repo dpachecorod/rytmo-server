@@ -119,34 +119,67 @@ class VirtualAccountService(private val bridgeService: BridgeService, private va
     )
 
     private fun mapToResponse(item: com.rytmo.library.bridge.model.VirtualAccountResponse): VirtualAccountResponse {
-        val usDeposit =
+        log.debug(
+            "Mapping virtual account — id={} status={} sourceDepositInstructions={} destination={}",
+            item.id,
+            item.status,
+            item.sourceDepositInstructions,
+            item.destination,
+        )
+        val mxDeposit =
             try {
-                item.sourceDepositInstructions?.getVirtualAccountSourceDepositInstructionsUs()
+                item.sourceDepositInstructions?.getVirtualAccountSourceDepositInstructionsMx()
             } catch (e: ClassCastException) {
                 null
             }
+        val usDeposit =
+            if (mxDeposit == null) {
+                try {
+                    item.sourceDepositInstructions?.getVirtualAccountSourceDepositInstructionsUs()
+                } catch (e: ClassCastException) {
+                    null
+                }
+            } else {
+                null
+            }
+        val sourceDepositInstructions =
+            mxDeposit?.let {
+                SourceDepositInstructions(
+                    paymentRail = it.paymentRails?.firstOrNull()?.value,
+                    currency = it.currency?.value,
+                    bankName = it.bankName ?: "STP",
+                    bankAddress = it.bankAddress,
+                    bankRoutingNumber = null,
+                    bankAccountNumber = null,
+                    clabe = it.clabe,
+                    bankCode = null,
+                    beneficiaryName = it.accountHolderName,
+                    depositMessage = null,
+                )
+            }
+                ?: usDeposit?.let {
+                    SourceDepositInstructions(
+                        paymentRail = it.paymentRail?.value,
+                        currency = it.currency?.value,
+                        bankName = it.bankName ?: "STP",
+                        bankAddress = it.bankAddress,
+                        bankRoutingNumber = it.bankRoutingNumber,
+                        bankAccountNumber = it.bankAccountNumber,
+                        clabe = null,
+                        bankCode = null,
+                        beneficiaryName = null,
+                        depositMessage = null,
+                    )
+                }
         return VirtualAccountResponse(
             id = item.id ?: "",
             status = item.status?.value,
-            sourceCurrency = usDeposit?.currency?.value,
-            sourcePaymentRail = usDeposit?.paymentRail?.value,
+            sourceCurrency = mxDeposit?.currency?.value ?: usDeposit?.currency?.value,
+            sourcePaymentRail =
+            mxDeposit?.paymentRails?.firstOrNull()?.value ?: usDeposit?.paymentRail?.value,
             destinationCurrency = item.destination?.currency?.value,
             destinationPaymentRail = item.destination?.paymentRail?.value,
-            sourceDepositInstructions =
-            usDeposit?.let {
-                SourceDepositInstructions(
-                    paymentRail = it.paymentRail?.value,
-                    currency = it.currency?.value,
-                    bankName = it.bankName,
-                    bankAddress = it.bankAddress,
-                    bankRoutingNumber = it.bankRoutingNumber,
-                    bankAccountNumber = it.bankAccountNumber,
-                    clabe = null,
-                    bankCode = null,
-                    beneficiaryName = null,
-                    depositMessage = null,
-                )
-            },
+            sourceDepositInstructions = sourceDepositInstructions,
             destination =
             item.destination?.let {
                 VirtualAccountDestination(

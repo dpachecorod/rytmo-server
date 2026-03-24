@@ -76,7 +76,7 @@ class SwapResourceBackendWalletTest {
                 slippageBps = 50,
             )
         whenever(dFlowService.getOrderQuote(any(), any(), any(), any(), any(), any())).thenReturn(quote)
-        whenever(swapSponsorService.execute(any(), any())).thenReturn("sponsortxsig123")
+        whenever(swapSponsorService.execute(any(), any(), any(), any())).thenReturn("sponsortxsig123")
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)
 
@@ -113,7 +113,7 @@ class SwapResourceBackendWalletTest {
                 slippageBps = 50,
             )
         whenever(dFlowService.getOrderQuote(any(), any(), any(), any(), any(), any())).thenReturn(quote)
-        whenever(swapSponsorService.execute(any(), any()))
+        whenever(swapSponsorService.execute(any(), any(), any(), any()))
             .thenThrow(PrivyWalletException("sponsor failed", 502))
 
         val accessToken = AccessTokenUtil.generateMockAccessToken(privateKeyPem, appId)

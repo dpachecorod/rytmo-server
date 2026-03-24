@@ -16,7 +16,7 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
 
-class JupiterService(private val meterRegistry: MeterRegistry) {
+class JupiterService(private val assetsBaseUrl: String, private val meterRegistry: MeterRegistry) {
 
     private val log = LoggerFactory.getLogger(this::class.java)
 
@@ -32,6 +32,21 @@ class JupiterService(private val meterRegistry: MeterRegistry) {
     @Volatile private var cachedTokens: List<OutputToken> = emptyList()
 
     @Volatile private var cacheExpiry: Instant = Instant.EPOCH
+
+    private val allowlist: Map<String, AllowlistEntry> by lazy {
+        val stream =
+            javaClass.getResourceAsStream("/token-allowlist.json")
+                ?: error("token-allowlist.json not found on classpath")
+        val entries =
+            objectMapper.readValue(
+                stream,
+                objectMapper.typeFactory.constructCollectionType(
+                    List::class.java,
+                    AllowlistEntry::class.java,
+                ),
+            ) as List<AllowlistEntry>
+        entries.associateBy { it.symbol }
+    }
 
     private fun <T> timed(operation: String, block: () -> T): T = Timer.builder("jupiter.request")
         .tag("operation", operation)
@@ -61,16 +76,19 @@ class JupiterService(private val meterRegistry: MeterRegistry) {
                     ),
                 ) as List<JupiterToken>
             val tokens =
-                jupiterTokens.map { t ->
+                jupiterTokens.mapNotNull { t ->
+                    val entry = allowlist[t.symbol]?.takeIf { it.enabled } ?: return@mapNotNull null
                     OutputToken(
                         mint = t.id,
                         symbol = t.symbol,
-                        name = t.name,
+                        name = entry.name,
                         decimals = t.decimals,
-                        logoURI = t.icon,
+                        logoURI = entry.logo?.let { "$assetsBaseUrl/tokens/$it" },
                     )
                 }
-            log.info("Fetched ${tokens.size} verified tokens from Jupiter")
+            log.info(
+                "Fetched ${jupiterTokens.size} verified tokens from Jupiter, returning ${tokens.size} after allowlist filter",
+            )
             cachedTokens = tokens
             cacheExpiry = Instant.now().plus(Duration.ofHours(1))
             tokens
@@ -80,7 +98,10 @@ class JupiterService(private val meterRegistry: MeterRegistry) {
     @JsonIgnoreProperties(ignoreUnknown = true)
     private data class JupiterToken(val id: String, val symbol: String, val name: String, val decimals: Int, val icon: String?)
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class AllowlistEntry(val symbol: String, val name: String, val enabled: Boolean, val logo: String? = null)
+
     companion object {
-        fun create(meterRegistry: MeterRegistry = SimpleMeterRegistry()): JupiterService = JupiterService(meterRegistry)
+        fun create(assetsBaseUrl: String, meterRegistry: MeterRegistry = SimpleMeterRegistry()): JupiterService = JupiterService(assetsBaseUrl, meterRegistry)
     }
 }

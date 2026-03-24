@@ -2,6 +2,8 @@ package com.rytmo.library.services
 
 import com.rytmo.library.bridge.model.ExternalAccount1
 import com.rytmo.library.bridge.model.ExternalAccountResponse
+import com.rytmo.library.bridge.model.LiquidationAddress
+import com.rytmo.library.bridge.model.LiquidationAddresses
 import com.rytmo.library.exceptions.ExternalAccountException
 import com.rytmo.library.persistence.customeridentities.CustomerIdentityDynamoDbBean
 import com.rytmo.library.persistence.customeridentities.CustomerIdentityService
@@ -9,6 +11,7 @@ import com.rytmo.models.externalaccounts.CreateExternalAccountRequest
 import com.rytmo.models.externalaccounts.ExternalAccountAddress
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -229,6 +232,8 @@ class ExternalAccountServiceTest {
                 )
 
         whenever(bridgeService.listExternalAccounts(bridgeCustomerId)).thenReturn(bridgeResponse)
+        whenever(bridgeService.listLiquidationAddresses(bridgeCustomerId))
+            .thenReturn(LiquidationAddresses())
 
         val result = externalAccountService.listByExternalId(externalId)
 
@@ -236,9 +241,52 @@ class ExternalAccountServiceTest {
         assertEquals("ext_acct_001", result[0].id)
         assertEquals("First Bank", result[0].bankName)
         assertEquals("1234", result[0].last4)
+        assertNull(result[0].liquidationAddress)
         assertEquals("ext_acct_002", result[1].id)
         assertEquals("Second Bank", result[1].bankName)
         assertEquals("5678", result[1].last4)
+        assertNull(result[1].liquidationAddress)
+    }
+
+    @Test
+    fun `listByExternalId should include liquidationAddress when available`() {
+        val externalId = "did:privy:user123"
+        val internalCustomerId = "customer-123"
+        val bridgeCustomerId = "bridge-cust-456"
+
+        whenever(customerIdentityService.getInternalCustomerIdByExternalId(externalId))
+            .thenReturn(internalCustomerId)
+        whenever(customerIdentityService.getIdentity(internalCustomerId, "bridge"))
+            .thenReturn(
+                CustomerIdentityDynamoDbBean().apply {
+                    this.internalCustomerId = internalCustomerId
+                    provider = "bridge"
+                    this.externalId = bridgeCustomerId
+                },
+            )
+
+        whenever(bridgeService.listExternalAccounts(bridgeCustomerId))
+            .thenReturn(
+                ExternalAccount1()
+                    .addDataItem(
+                        ExternalAccountResponse(null, "1234", null, null, null, null)
+                            .id("ext_acct_001")
+                            .accountOwnerName("Jane Doe")
+                            .bankName("STP"),
+                    ),
+            )
+        whenever(bridgeService.listLiquidationAddresses(bridgeCustomerId))
+            .thenReturn(
+                LiquidationAddresses()
+                    .addDataItem(
+                        LiquidationAddress("0xabc123", null, null).externalAccountId("ext_acct_001"),
+                    ),
+            )
+
+        val result = externalAccountService.listByExternalId(externalId)
+
+        assertEquals(1, result.size)
+        assertEquals("0xabc123", result[0].liquidationAddress)
     }
 
     @Test

@@ -16,6 +16,9 @@ import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
+import org.eclipse.microprofile.openapi.annotations.media.Content
+import org.eclipse.microprofile.openapi.annotations.media.Schema
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse
 
 @Path("/customers/me/external-accounts")
 class ExternalAccountResource {
@@ -25,6 +28,21 @@ class ExternalAccountResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "201",
+        description = "External account created",
+        content =
+        [
+            Content(
+                mediaType = MediaType.APPLICATION_JSON,
+                schema =
+                Schema(
+                    implementation =
+                    com.rytmo.models.externalaccounts.ExternalAccountResponse::class,
+                ),
+            ),
+        ],
+    )
     fun createExternalAccount(request: CreateExternalAccountRequest, @Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -50,6 +68,23 @@ class ExternalAccountResource {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "200",
+        description = "List of external accounts",
+        content =
+        [
+            Content(
+                mediaType = MediaType.APPLICATION_JSON,
+                schema =
+                Schema(
+                    implementation =
+                    Array<
+                        com.rytmo.models.externalaccounts.ExternalAccountResponse,
+                        >::class,
+                ),
+            ),
+        ],
+    )
     fun listExternalAccounts(@Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser

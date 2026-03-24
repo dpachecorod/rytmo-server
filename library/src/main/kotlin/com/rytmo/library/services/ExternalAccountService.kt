@@ -53,8 +53,13 @@ class ExternalAccountService(private val bridgeService: BridgeService, private v
                 )
 
         try {
-            val bridgeResponse = bridgeService.listExternalAccounts(bridgeIdentity.externalId)
-            return bridgeResponse.data?.map { mapToResponse(it) } ?: emptyList()
+            val accounts = bridgeService.listExternalAccounts(bridgeIdentity.externalId)
+            val liquidationAddressByAccountId =
+                bridgeService.listLiquidationAddresses(bridgeIdentity.externalId).data?.associate {
+                    it.externalAccountId to it.address
+                } ?: emptyMap()
+            return accounts.data?.map { mapToResponse(it, liquidationAddressByAccountId[it.id]) }
+                ?: emptyList()
         } catch (e: BridgeApiException) {
             throw ExternalAccountException(
                 "Failed to list external accounts via Bridge API: ${e.message}",
@@ -63,24 +68,30 @@ class ExternalAccountService(private val bridgeService: BridgeService, private v
         }
     }
 
-    private fun mapToResponse(item: com.rytmo.library.bridge.model.ExternalAccountResponse): ExternalAccountResponse = ExternalAccountResponse(
-        id = item.id,
-        accountOwnerName = item.accountOwnerName,
-        bankName = item.bankName,
-        last4 = item.last4,
-        active = item.active?.toString(),
-        createdAt = item.createdAt?.toString(),
-        updatedAt = item.updatedAt?.toString(),
-        address =
-        item.address?.let {
-            ExternalAccountAddress(
-                streetLine1 = it.streetLine1,
-                streetLine2 = it.streetLine2,
-                city = it.city,
-                state = it.state,
-                postalCode = it.postalCode,
-                country = it.country,
-            )
-        },
-    )
+    private fun mapToResponse(item: com.rytmo.library.bridge.model.ExternalAccountResponse, liquidationAddress: String? = null): ExternalAccountResponse {
+        @Suppress("UNCHECKED_CAST")
+        val clabeMap = item.clabe as? Map<String, Any?>
+        val last4 = clabeMap?.get("last_4") as? String ?: item.last4
+        return ExternalAccountResponse(
+            id = item.id,
+            accountOwnerName = item.accountOwnerName,
+            bankName = item.bankName,
+            last4 = last4,
+            active = item.active?.toString(),
+            createdAt = item.createdAt?.toString(),
+            updatedAt = item.updatedAt?.toString(),
+            address =
+            item.address?.let {
+                ExternalAccountAddress(
+                    streetLine1 = it.streetLine1,
+                    streetLine2 = it.streetLine2,
+                    city = it.city,
+                    state = it.state,
+                    postalCode = it.postalCode,
+                    country = it.country,
+                )
+            },
+            liquidationAddress = liquidationAddress,
+        )
+    }
 }

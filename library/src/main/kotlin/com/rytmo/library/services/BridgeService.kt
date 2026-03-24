@@ -90,8 +90,12 @@ class BridgeService(
         private const val DEFAULT_BASE_URL = "https://api.bridge.xyz/v0"
         private val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(10)
         private val READ_TIMEOUT: Duration = Duration.ofSeconds(30)
+        val log = LoggerFactory.getLogger(this::class.java.name)
 
         fun create(apiKey: String, baseUrl: String = DEFAULT_BASE_URL, meterRegistry: MeterRegistry = SimpleMeterRegistry()): BridgeService {
+            log.info(
+                "Api-Key: $apiKey, Base URL: $baseUrl, Connect timeout: $CONNECT_TIMEOUT, Read timeout: $READ_TIMEOUT, MeterRegistry: $meterRegistry",
+            )
             val apiClient = CachingApiClient()
             apiClient.updateBaseUri(baseUrl)
             apiClient.setRequestInterceptor { builder -> builder.header("Api-Key", apiKey) }
@@ -119,6 +123,7 @@ class BridgeService(
                 .type(CreateKycLinks.TypeEnum.fromValue(type))
                 .endorsements(listOf(EndorsementType.SPEI, EndorsementType.BASE))
                 .redirectUri(redirectUri)
+        log.info("Creating KYC link with request: $request")
 
         try {
             return timed("createKycLink") { kycLinksApi.kycLinksPost(idempotencyKey, request) }
@@ -205,9 +210,24 @@ class BridgeService(
 
     fun listVirtualAccounts(customerId: String): VirtualAccounts {
         try {
-            return timed("listVirtualAccounts") {
-                virtualAccountsApi.customersCustomerIDVirtualAccountsGet(customerId, null, null, null, null)
+            val result =
+                timed("listVirtualAccounts") {
+                    virtualAccountsApi.customersCustomerIDVirtualAccountsGet(
+                        customerId,
+                        null,
+                        null,
+                        null,
+                        null,
+                    )
+                }
+            result.data?.forEach { account ->
+                log.debug(
+                    "Virtual account raw — id={} json={}",
+                    account.id,
+                    objectMapper.writeValueAsString(account),
+                )
             }
+            return result
         } catch (e: ApiException) {
             throw BridgeApiException("Failed to list virtual accounts: ${e.message}", e.code, e)
         }
@@ -237,8 +257,10 @@ class BridgeService(
     private data class CreateUsExternalAccountBody(
         @field:JsonProperty("account_type") val accountType: String = "us",
         @field:JsonProperty("account_owner_name") val accountOwnerName: String,
+        @field:JsonProperty("currency") val currency: String?,
         @field:JsonProperty("routing_number") val routingNumber: String?,
-        @field:JsonProperty("account_number") val accountNumber: String,
+        @field:JsonProperty("account_number") val accountNumber: String?,
+        @field:JsonProperty("clabe") val clabe: Map<String, String>?,
         @field:JsonProperty("address") val address: Map<String, String?>?,
     )
 
@@ -260,12 +282,15 @@ class BridgeService(
                 "postal_code" to address.postalCode,
                 "country" to address.country,
             )
+        val isClabe = accountType == "clabe"
         val requestBody =
             CreateUsExternalAccountBody(
                 accountType = accountType,
                 accountOwnerName = accountOwnerName,
+                currency = if (isClabe) "mxn" else null,
                 routingNumber = routingNumber,
-                accountNumber = accountNumber,
+                accountNumber = if (isClabe) null else accountNumber,
+                clabe = if (isClabe) mapOf("account_number" to accountNumber) else null,
                 address = addressMap,
             )
         log.info("Creating external account with body: $requestBody")
@@ -305,11 +330,37 @@ class BridgeService(
 
     fun listExternalAccounts(customerId: String): ExternalAccount1 {
         try {
-            return timed("listExternalAccounts") {
-                externalAccountsApi.customersCustomerIDExternalAccountsGet(customerId, null, null, null)
+            val result =
+                timed("listExternalAccounts") {
+                    externalAccountsApi.customersCustomerIDExternalAccountsGet(customerId, null, null, null)
+                }
+            result.data?.forEach { account ->
+                log.debug(
+                    "External account — id={} accountType={} last4={} bankName={} clabe={} account={}",
+                    account.id,
+                    account.accountType,
+                    account.last4,
+                    account.bankName,
+                    account.clabe,
+                    account.account,
+                )
             }
+            return result
         } catch (e: ApiException) {
             throw BridgeApiException("Failed to list external accounts: ${e.message}", e.code, e)
+        }
+    }
+
+    fun getExternalAccount(customerId: String, externalAccountId: String): ExternalAccountResponse {
+        try {
+            return timed("getExternalAccount") {
+                externalAccountsApi.customersCustomerIDExternalAccountsExternalAccountIDGet(
+                    customerId,
+                    externalAccountId,
+                )
+            }
+        } catch (e: ApiException) {
+            throw BridgeApiException("Failed to get external account: ${e.message}", e.code, e)
         }
     }
 
