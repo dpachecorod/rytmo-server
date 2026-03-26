@@ -60,6 +60,7 @@ class SwapResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Partially signed transaction ready for client signing",
         content =
         [
             Content(
@@ -120,6 +121,7 @@ class SwapResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Transaction submitted, returns signature",
         content =
         [
             Content(
@@ -144,6 +146,7 @@ class SwapResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Swap quote for given token pair and amount",
         content =
         [
             Content(
@@ -181,6 +184,7 @@ class SwapResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Token balances for given wallet address",
         content =
         [
             Content(
@@ -204,6 +208,7 @@ class SwapResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Supported output tokens for swaps",
         content =
         [
             Content(
@@ -227,6 +232,7 @@ class SwapResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Swap transaction history for current user",
         content =
         [
             Content(
@@ -255,6 +261,7 @@ class SwapResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Current on-chain status of a submitted swap",
         content =
         [
             Content(

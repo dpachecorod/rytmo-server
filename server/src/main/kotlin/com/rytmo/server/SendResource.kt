@@ -42,6 +42,7 @@ class SendResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Partially signed transfer transaction ready for client signing",
         content =
         [
             Content(
@@ -79,6 +80,7 @@ class SendResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Transaction submitted, returns signature",
         content =
         [
             Content(

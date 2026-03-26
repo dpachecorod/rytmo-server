@@ -93,9 +93,6 @@ class BridgeService(
         val log = LoggerFactory.getLogger(this::class.java.name)
 
         fun create(apiKey: String, baseUrl: String = DEFAULT_BASE_URL, meterRegistry: MeterRegistry = SimpleMeterRegistry()): BridgeService {
-            log.info(
-                "Api-Key: $apiKey, Base URL: $baseUrl, Connect timeout: $CONNECT_TIMEOUT, Read timeout: $READ_TIMEOUT, MeterRegistry: $meterRegistry",
-            )
             val apiClient = CachingApiClient()
             apiClient.updateBaseUri(baseUrl)
             apiClient.setRequestInterceptor { builder -> builder.header("Api-Key", apiKey) }

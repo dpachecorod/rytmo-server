@@ -26,9 +26,10 @@ export interface ServiceConfig {
   privyAuthorizationKey: string;
   paginationEncryptionKey: string;
   heliusApiKey: string;
-  swapSponsorshipMode: string;
-  swapFeePayerPrivateKey: string;
+  feePayerWalletId: string;
+  feePayerWalletAddress: string;
   deframeApiKey: string;
+  privyWebhookSecret: string;
 }
 
 export interface AppConfig {

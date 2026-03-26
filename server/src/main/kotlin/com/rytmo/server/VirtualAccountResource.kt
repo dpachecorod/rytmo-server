@@ -4,6 +4,7 @@ import com.rytmo.library.exceptions.VirtualAccountException
 import com.rytmo.library.services.VirtualAccountService
 import com.rytmo.models.auth.AuthorizedUser
 import com.rytmo.models.virtualaccounts.CreateVirtualAccountRequest
+import com.rytmo.models.virtualaccounts.VirtualAccountActivity
 import com.rytmo.models.virtualaccounts.VirtualAccountResponse
 import com.rytmo.server.auth.PrivyProtected
 import com.rytmo.server.auth.filters.PrivyAuthFilterScope
@@ -31,6 +32,17 @@ class VirtualAccountResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "201",
+        description = "Virtual account created",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = VirtualAccountResponse::class),
+            ),
+        ],
+    )
     fun createVirtualAccount(request: CreateVirtualAccountRequest, @Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -58,6 +70,7 @@ class VirtualAccountResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Virtual accounts for current customer",
         content =
         [
             Content(
@@ -92,6 +105,21 @@ class VirtualAccountResource {
     @Path("/{virtualAccountId}/activity")
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "200",
+        description = "Activity for a virtual account",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema =
+                Schema(
+                    type = SchemaType.ARRAY,
+                    implementation = VirtualAccountActivity::class,
+                ),
+            ),
+        ],
+    )
     fun getVirtualAccountActivity(@PathParam("virtualAccountId") virtualAccountId: String, @Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser

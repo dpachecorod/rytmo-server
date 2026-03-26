@@ -36,6 +36,7 @@ class YieldResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Available yield strategies",
         content =
         [
             Content(
@@ -57,6 +58,7 @@ class YieldResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Yield strategy details",
         content =
         [
             Content(
@@ -78,6 +80,7 @@ class YieldResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Quote for a yield strategy deposit",
         content =
         [
             Content(
@@ -100,6 +103,7 @@ class YieldResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Bytecode for a yield strategy transaction",
         content =
         [
             Content(

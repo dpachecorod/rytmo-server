@@ -1,0 +1,11 @@
+{
+  "availability-zones:account=116933115593:region=mx-central-1": [
+    "mx-central-1a",
+    "mx-central-1b",
+    "mx-central-1c"
+  ],
+  "hosted-zone:account=116933115593:domainName=rytmo.xyz:region=mx-central-1": {
+    "Id": "/hostedzone/Z03127841ZZ44MXEZRG5Q",
+    "Name": "rytmo.xyz."
+  }
+}

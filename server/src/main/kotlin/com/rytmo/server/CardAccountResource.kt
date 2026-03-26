@@ -33,6 +33,17 @@ class CardAccountResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "201",
+        description = "Card account provisioned",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = CardAccountResponse::class),
+            ),
+        ],
+    )
     fun provisionCardAccount(request: CreateCardAccountRequest, @Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -60,6 +71,7 @@ class CardAccountResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Card accounts for current customer",
         content =
         [
             Content(
@@ -96,6 +108,7 @@ class CardAccountResource {
     @PrivyProtected
     @APIResponse(
         responseCode = "200",
+        description = "Paginated card transactions",
         content =
         [
             Content(

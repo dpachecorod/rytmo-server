@@ -67,6 +67,8 @@ export class Application {
       customersTableArn: dynamoDbStack.customersTable.tableArn,
       customerIdentitiesTableName: dynamoDbStack.customerIdentitiesTable.tableName,
       customerIdentitiesTableArn: dynamoDbStack.customerIdentitiesTable.tableArn,
+      deviceTokensTableName: dynamoDbStack.deviceTokensTable.tableName,
+      deviceTokensTableArn: dynamoDbStack.deviceTokensTable.tableArn,
       tags,
     });
   }

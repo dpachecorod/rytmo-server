@@ -10,6 +10,7 @@ export interface DynamoDbStackProps extends cdk.StackProps {
 export class DynamoDbStack extends cdk.Stack {
   public readonly customersTable: dynamodb.Table;
   public readonly customerIdentitiesTable: dynamodb.Table;
+  public readonly deviceTokensTable: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: DynamoDbStackProps) {
     super(scope, id, props);
@@ -70,6 +71,18 @@ export class DynamoDbStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // Device tokens table (Expo push notification tokens, client-managed)
+    this.deviceTokensTable = new dynamodb.Table(this, 'DeviceTokensTable', {
+      tableName: `${stage.stageName}-device-tokens`,
+      partitionKey: { name: 'customerId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'tokenHash', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: stage.isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: stage.isProd,
+      },
+    });
+
     // Outputs
     new cdk.CfnOutput(this, 'CustomersTableName', {
       value: this.customersTable.tableName,
@@ -89,6 +102,16 @@ export class DynamoDbStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'CustomerIdentitiesTableArn', {
       value: this.customerIdentitiesTable.tableArn,
       exportName: `${stage.stageName}-customer-identities-table-arn`,
+    });
+
+    new cdk.CfnOutput(this, 'DeviceTokensTableName', {
+      value: this.deviceTokensTable.tableName,
+      exportName: `${stage.stageName}-device-tokens-table-name`,
+    });
+
+    new cdk.CfnOutput(this, 'DeviceTokensTableArn', {
+      value: this.deviceTokensTable.tableArn,
+      exportName: `${stage.stageName}-device-tokens-table-arn`,
     });
   }
 }

@@ -5,11 +5,14 @@ import com.rytmo.library.persistence.customeridentities.CustomerIdentityDao
 import com.rytmo.library.persistence.customeridentities.CustomerIdentityService
 import com.rytmo.library.persistence.customers.CustomerDao
 import com.rytmo.library.persistence.customers.CustomerService
+import com.rytmo.library.persistence.devicetokens.DeviceTokenDao
+import com.rytmo.library.persistence.devicetokens.DeviceTokenService
 import com.rytmo.library.services.BridgeCustomerService
 import com.rytmo.library.services.BridgeService
 import com.rytmo.library.services.CardAccountService
 import com.rytmo.library.services.DFlowService
 import com.rytmo.library.services.DeframeService
+import com.rytmo.library.services.ExpoDeviceTokenService
 import com.rytmo.library.services.ExternalAccountService
 import com.rytmo.library.services.HeliusService
 import com.rytmo.library.services.JupiterService
@@ -191,4 +194,21 @@ class DynamoDbProducerScope {
         feePayerWalletId,
         feePayerWalletAddress,
     )
+
+    @Produces
+    @Singleton
+    fun deviceTokenDao(
+        dynamoDbEnhancedClient: DynamoDbEnhancedClient,
+        paginationTokenEncryptor: PaginationTokenEncryptor,
+        @ConfigProperty(name = "dynamodb.device-tokens.table-name") tableName: String,
+    ): DeviceTokenDao = DeviceTokenDao(dynamoDbEnhancedClient, paginationTokenEncryptor, tableName)
+
+    @Produces
+    @Singleton
+    fun deviceTokenService(deviceTokenDao: DeviceTokenDao): DeviceTokenService = DeviceTokenService(deviceTokenDao)
+
+    @Produces
+    @Singleton
+    fun expoDeviceTokenService(customerIdentityService: CustomerIdentityService, deviceTokenService: DeviceTokenService): ExpoDeviceTokenService =
+        ExpoDeviceTokenService(customerIdentityService, deviceTokenService)
 }

@@ -8,6 +8,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as path from 'path';
 import { Construct } from 'constructs';
 import { Stage } from '../types';
 
@@ -20,6 +21,8 @@ export interface ServiceStackProps extends cdk.StackProps {
   customersTableArn: string;
   customerIdentitiesTableName: string;
   customerIdentitiesTableArn: string;
+  deviceTokensTableName: string;
+  deviceTokensTableArn: string;
 }
 
 export class ServiceStack extends cdk.Stack {
@@ -77,6 +80,8 @@ export class ServiceStack extends cdk.Stack {
           `${props.customersTableArn}/index/*`,
           props.customerIdentitiesTableArn,
           `${props.customerIdentitiesTableArn}/index/*`,
+          props.deviceTokensTableArn,
+          `${props.deviceTokensTableArn}/index/*`,
         ],
       }),
     );
@@ -131,9 +136,8 @@ export class ServiceStack extends cdk.Stack {
     const paginationKeyParam = mkParam('PaginationKey', 'pagination-encryption-key', serviceConfig.paginationEncryptionKey);
     const heliusApiKeyParam = mkParam('HeliusApiKey', 'helius-api-key', serviceConfig.heliusApiKey);
 
-    const swapFeePayerKeyParam = mkParam('SwapFeePayerKey', 'swap-fee-payer-private-key', serviceConfig.swapFeePayerPrivateKey || ' ');
-
     const deframeApiKeyParam = mkParam('DeframeApiKey', 'deframe-api-key', serviceConfig.deframeApiKey || ' ');
+    const privyWebhookSecretParam = mkParam('PrivyWebhookSecret', 'privy-webhook-secret', serviceConfig.privyWebhookSecret || ' ');
 
     // ── Assets Bucket ────────────────────────────────────────────────────────
 
@@ -175,12 +179,14 @@ export class ServiceStack extends cdk.Stack {
       environment: {
         DYNAMODB_TABLE_CUSTOMERS: props.customersTableName,
         DYNAMODB_TABLE_CUSTOMER_IDENTITIES: props.customerIdentitiesTableName,
+        DYNAMODB_DEVICE_TOKENS_TABLE_NAME: props.deviceTokensTableName,
         BRIDGE_BASE_URL: serviceConfig.bridgeBaseUrl,
         BRIDGE_LIQUIDATION_RETURN_ADDRESS: serviceConfig.bridgeLiquidationReturnAddress,
         PRIVY_JWKS_URL: `https://auth.privy.io/api/v1/apps/${serviceConfig.privyAppId}/jwks.json`,
         SOLANA_USDC_MINT: serviceConfig.solanaUsdcMint,
         PRIVY_SOLANA_CAIP2: serviceConfig.solanaCaip2,
-        SWAP_SPONSORSHIP_MODE: serviceConfig.swapSponsorshipMode,
+        SWAP_FEE_PAYER_WALLET_ID: serviceConfig.feePayerWalletId,
+        SWAP_FEE_PAYER_WALLET_ADDRESS: serviceConfig.feePayerWalletAddress,
         ASSETS_BASE_URL: assetsBaseUrl,
         DEFRAME_BASE_URL: 'https://api.deframe.io',
         AWS_REGION: stage.region,
@@ -195,8 +201,8 @@ export class ServiceStack extends cdk.Stack {
         PRIVY_AUTHORIZATION_KEY: ecs.Secret.fromSsmParameter(privyAuthorizationKeyParam),
         PAGINATION_ENCRYPTION_KEY: ecs.Secret.fromSsmParameter(paginationKeyParam),
         HELIUS_API_KEY: ecs.Secret.fromSsmParameter(heliusApiKeyParam),
-        SWAP_FEE_PAYER_PRIVATE_KEY: ecs.Secret.fromSsmParameter(swapFeePayerKeyParam),
         DEFRAME_API_KEY: ecs.Secret.fromSsmParameter(deframeApiKeyParam),
+        PRIVY_WEBHOOK_SECRET: ecs.Secret.fromSsmParameter(privyWebhookSecretParam),
       },
       portMappings: [{ containerPort: 8080 }],
       // Liveness probe - ECS restarts the task if this fails
@@ -242,13 +248,14 @@ export class ServiceStack extends cdk.Stack {
 
     const cwNamespace = `${stage.stageName}/rytmo-api`;
 
-// SEARCH expression - discovers all matching metrics at runtime without hardcoding.
-    // Schema must include ALL dimensions Quarkus emits: exception, method, outcome, status, uri.
-    const httpSchema = 'exception,method,outcome,status,uri';
-    const search = (schema: string, metricName: string, stat: string, extraFilter = ''): cw.MathExpression => {
+    // SEARCH expression - discovers all matching metrics at runtime without hardcoding.
+    // Schema matches the dimensions Quarkus emits: method, outcome, status, uri.
+    const httpSchema = 'method,outcome,status,uri';
+    const search = (schema: string, metricName: string, stat: string, extraFilter = '', label?: string): cw.MathExpression => {
       const filter = extraFilter ? ` ${extraFilter}` : '';
       return new cw.MathExpression({
         expression: `SEARCH('{${cwNamespace},${schema}}${filter} MetricName="${metricName}"', '${stat}', 60)`,
+        label: label,
         period: cdk.Duration.minutes(1),
       });
     };
@@ -259,13 +266,13 @@ export class ServiceStack extends cdk.Stack {
         [
           new cw.GraphWidget({
             title: 'TPS per endpoint (req/min)',
-            left: [search(httpSchema, 'http.server.requests.count', 'Sum', 'outcome="SUCCESS"')],
+            left: [search(httpSchema, 'http.server.requests.count', 'Sum', 'outcome="SUCCESS"', "${PROP('Dim.uri')}")],
             width: 12,
             height: 6,
           }),
           new cw.GraphWidget({
             title: 'Max Latency per endpoint (ms)',
-            left: [search(httpSchema, 'http.server.requests.max', 'Maximum')],
+            left: [search(httpSchema, 'http.server.requests.max', 'Maximum', '', "${PROP('Dim.uri')}")],
             width: 12,
             height: 6,
           }),
@@ -273,13 +280,13 @@ export class ServiceStack extends cdk.Stack {
         [
           new cw.GraphWidget({
             title: '4xx Errors by endpoint',
-            left: [search(httpSchema, 'http.server.requests.count', 'Sum', 'outcome="CLIENT_ERROR"')],
+            left: [search(httpSchema, 'http.server.requests.count', 'Sum', 'outcome="CLIENT_ERROR"', "${PROP('Dim.uri')}")],
             width: 12,
             height: 6,
           }),
           new cw.GraphWidget({
             title: '5xx Errors by endpoint',
-            left: [search(httpSchema, 'http.server.requests.count', 'Sum', 'outcome="SERVER_ERROR"')],
+            left: [search(httpSchema, 'http.server.requests.count', 'Sum', 'outcome="SERVER_ERROR"', "${PROP('Dim.uri')}")],
             width: 12,
             height: 6,
           }),

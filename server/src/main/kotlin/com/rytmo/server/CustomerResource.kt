@@ -8,9 +8,13 @@ import com.rytmo.library.services.BridgeCustomerService
 import com.rytmo.library.services.KycService
 import com.rytmo.library.services.OnboardingService
 import com.rytmo.models.auth.AuthorizedUser
+import com.rytmo.models.bridge.BridgeCustomer
 import com.rytmo.models.bridge.CreateBridgeCustomerRequest
+import com.rytmo.models.customer.Customer
 import com.rytmo.models.customer.OnboardRequest
 import com.rytmo.models.kyc.CreateKycLinkRequest
+import com.rytmo.models.kyc.KycLinkResponse
+import com.rytmo.models.onboarding.BridgeOnboardingStatus
 import com.rytmo.server.auth.PrivyProtected
 import com.rytmo.server.auth.filters.PrivyAuthFilterScope
 import jakarta.inject.Inject
@@ -23,9 +27,14 @@ import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
+import org.eclipse.microprofile.openapi.annotations.enums.SchemaType
 import org.eclipse.microprofile.openapi.annotations.enums.SecuritySchemeType
+import org.eclipse.microprofile.openapi.annotations.media.Content
+import org.eclipse.microprofile.openapi.annotations.media.Schema
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse
 import org.eclipse.microprofile.openapi.annotations.security.SecurityScheme
 import org.eclipse.microprofile.openapi.annotations.security.SecuritySchemes
+import org.jboss.logging.Logger
 
 @Path("/customers")
 @SecuritySchemes(
@@ -43,11 +52,24 @@ class CustomerResource {
 
     @Inject lateinit var bridgeCustomerService: BridgeCustomerService
 
+    @Inject lateinit var log: Logger
+
     @POST
     @Path("/onboard")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "201",
+        description = "Customer created",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = Customer::class),
+            ),
+        ],
+    )
     fun onboard(request: OnboardRequest, @Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -71,6 +93,17 @@ class CustomerResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "201",
+        description = "KYC link created",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = KycLinkResponse::class),
+            ),
+        ],
+    )
     fun createKycLink(request: CreateKycLinkRequest, @Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -100,6 +133,17 @@ class CustomerResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "201",
+        description = "Bridge customer created",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = BridgeCustomer::class),
+            ),
+        ],
+    )
     fun createBridgeCustomer(request: CreateBridgeCustomerRequest, @Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -128,6 +172,17 @@ class CustomerResource {
     @Path("/me")
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "200",
+        description = "Current customer",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = Customer::class),
+            ),
+        ],
+    )
     fun getCustomer(@Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -145,6 +200,17 @@ class CustomerResource {
     @Path("/kyc")
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "200",
+        description = "KYC links for current customer",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(type = SchemaType.ARRAY, implementation = KycLinkResponse::class),
+            ),
+        ],
+    )
     fun listKycLinks(@Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -153,6 +219,7 @@ class CustomerResource {
             val kycLinks = kycService.listKycLinksByExternalId(authorizedUser.userId)
             Response.ok(kycLinks).build()
         } catch (e: KycLinkCreationException) {
+            log.error("Failed to get KYC links: ${e.message}", e)
             if (e.message?.contains("not found") == true) {
                 Response.status(Response.Status.NOT_FOUND).entity(mapOf("error" to e.message)).build()
             } else {
@@ -167,6 +234,17 @@ class CustomerResource {
     @Path("/me/onboarding/bridge")
     @Produces(MediaType.APPLICATION_JSON)
     @PrivyProtected
+    @APIResponse(
+        responseCode = "200",
+        description = "Bridge onboarding status for current customer",
+        content =
+        [
+            Content(
+                mediaType = "application/json",
+                schema = Schema(implementation = BridgeOnboardingStatus::class),
+            ),
+        ],
+    )
     fun getBridgeOnboardingStatus(@Context requestContext: ContainerRequestContext): Response {
         val authorizedUser =
             requestContext.getProperty(PrivyAuthFilterScope.AUTHORIZED_USER_PROPERTY) as AuthorizedUser
@@ -180,6 +258,7 @@ class CustomerResource {
 
             Response.ok(status).build()
         } catch (e: BridgeApiException) {
+            log.error("Failed to get onboarding status: ${e.message}", e)
             Response.status(Response.Status.BAD_GATEWAY)
                 .entity(mapOf("error" to "Failed to get onboarding status"))
                 .build()

@@ -55,6 +55,31 @@ Environment variables required in `server/.env`:
 - Use `@TestProfile(PrivyTestProfile::class)` for tests requiring JWT authentication
 - `AccessTokenUtil` generates valid test tokens with mock EC256 keys
 
+## API Documentation
+
+Every endpoint must have an `@APIResponse` annotation with:
+- `responseCode` — the success HTTP status code (e.g. `"200"`, `"201"`)
+- `description` — a short description of what the response represents
+- `content` with a `Schema` pointing to the exact response model class (use `SchemaType.ARRAY` for list responses)
+
+Example:
+```kotlin
+@APIResponse(
+    responseCode = "200",
+    description = "Current customer",
+    content = [Content(mediaType = "application/json", schema = Schema(implementation = Customer::class))],
+)
+```
+
+For array responses:
+```kotlin
+@APIResponse(
+    responseCode = "200",
+    description = "List of items",
+    content = [Content(mediaType = "application/json", schema = Schema(type = SchemaType.ARRAY, implementation = ItemResponse::class))],
+)
+```
+
 ## Code Style
 
 Spotless enforces formatting with ktfmt and ktlint. Formatting is checked on build.

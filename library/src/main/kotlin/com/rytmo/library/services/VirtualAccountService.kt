@@ -29,6 +29,7 @@ class VirtualAccountService(private val bridgeService: BridgeService, private va
 
         val wallet = privyService.getWallet(request.walletId)
 
+        log.info("Creating virtual account for customer {}", internalCustomerId)
         try {
             val bridgeResponse =
                 bridgeService.createVirtualAccount(
@@ -39,6 +40,7 @@ class VirtualAccountService(private val bridgeService: BridgeService, private va
                     destinationAddress = wallet.address,
                 )
 
+            log.info("Virtual account created successfully for customer {}", internalCustomerId)
             return mapToResponse(bridgeResponse)
         } catch (e: BridgeApiException) {
             log.error("Failed to create virtual account: ${e.message}", e)
@@ -119,17 +121,22 @@ class VirtualAccountService(private val bridgeService: BridgeService, private va
     )
 
     private fun mapToResponse(item: com.rytmo.library.bridge.model.VirtualAccountResponse): VirtualAccountResponse {
-        log.debug(
-            "Mapping virtual account — id={} status={} sourceDepositInstructions={} destination={}",
+        log.info(
+            "Mapping virtual account id={} status={} sourceDepositInstructions type={} raw={}",
             item.id,
             item.status,
+            item.sourceDepositInstructions?.javaClass?.simpleName,
             item.sourceDepositInstructions,
-            item.destination,
         )
         val mxDeposit =
             try {
                 item.sourceDepositInstructions?.getVirtualAccountSourceDepositInstructionsMx()
             } catch (e: ClassCastException) {
+                log.info(
+                    "Virtual account id={} sourceDepositInstructions is not MX type: {}",
+                    item.id,
+                    e.message,
+                )
                 null
             }
         val usDeposit =
@@ -137,11 +144,23 @@ class VirtualAccountService(private val bridgeService: BridgeService, private va
                 try {
                     item.sourceDepositInstructions?.getVirtualAccountSourceDepositInstructionsUs()
                 } catch (e: ClassCastException) {
+                    log.info(
+                        "Virtual account id={} sourceDepositInstructions is not US type: {}",
+                        item.id,
+                        e.message,
+                    )
                     null
                 }
             } else {
                 null
             }
+        if (mxDeposit == null && usDeposit == null) {
+            log.info(
+                "Virtual account id={} has null sourceDepositInstructions after mapping (raw was {})",
+                item.id,
+                item.sourceDepositInstructions,
+            )
+        }
         val sourceDepositInstructions =
             mxDeposit?.let {
                 SourceDepositInstructions(
